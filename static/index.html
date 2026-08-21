@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZA量化 · 行情与决策</title>
+<link rel="icon" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶部工具栏 -->
+  <header id="toolbar">
+    <div class="brand">ZA量化 <span class="brand-sub">行情 · 决策 · v1.1.1</span></div>
+    <div id="periods" class="periods">
+      <button data-period="60">1分钟</button>
+      <button data-period="300" class="active">5分钟</button>
+      <button data-period="900">15分钟</button>
+      <button data-period="1800">30分钟</button>
+      <button data-period="3600">60分钟</button>
+      <button data-period="86400">日线</button>
+    </div>
+    <div id="conn-status" class="conn-status">连接中…</div>
+  </header>
+
+  <!-- 报价头 -->
+  <section id="quote-bar">
+    <div class="qb-name">
+      <div id="qb-title">--</div>
+      <div id="qb-meta" class="muted"></div>
+    </div>
+    <div class="qb-price">
+      <div id="qb-last" class="last-price">--</div>
+      <div id="qb-change" class="change">--</div>
+    </div>
+    <div class="qb-metrics">
+      <div><label>今开</label><span id="m-open">--</span></div>
+      <div><label>最高</label><span id="m-high">--</span></div>
+      <div><label>最低</label><span id="m-low">--</span></div>
+      <div><label>昨结</label><span id="m-preclose">--</span></div>
+      <div><label>成交量</label><span id="m-volume">--</span></div>
+      <div><label>持仓量</label><span id="m-oi">--</span></div>
+      <div><label>日增仓</label><span id="m-oidelta">--</span></div>
+    </div>
+  </section>
+
+  <main id="main">
+    <!-- 左侧：合约 -->
+    <aside id="sidebar">
+      <input id="search" type="text" placeholder="搜索合约：如 p2609 / 棕榈">
+      <div id="watchlist" class="watchlist"></div>
+      <div id="exchange-tabs" class="exchange-tabs">
+        <button data-ex="" class="active">全部</button>
+        <button data-ex="SHFE">上期</button>
+        <button data-ex="DCE">大商</button>
+        <button data-ex="CZCE">郑商</button>
+        <button data-ex="CFFEX">中金</button>
+        <button data-ex="INE">能源</button>
+        <button data-ex="GFEX">广期</button>
+      </div>
+      <div class="list-title">合约列表 <span id="inst-count" class="muted"></span></div>
+      <div id="contract-list" class="contract-list"></div>
+    </aside>
+
+    <!-- 中间：图表 -->
+    <section id="chart-area">
+      <div id="chart"></div>
+      <div id="chart-hint" class="muted">滚轮缩放 · 拖拽平移 · 双击复位 · 十字光标查看</div>
+    </section>
+
+    <!-- 右侧：盘口 + 决策 -->
+    <aside id="right-panel">
+      <div id="depth" class="panel">
+        <div class="panel-title">五档盘口</div>
+        <div id="depth-body"></div>
+      </div>
+      <div id="decision" class="panel">
+        <div class="panel-title">决策评估</div>
+        <div id="decision-body"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer id="statusbar">
+    <span id="st-data">数据源：天勤 TqSdk</span>
+    <span id="st-ws">WebSocket：未连接</span>
+    <span id="st-updated">更新：--</span>
+    <span id="st-symbol">合约：--</span>
+  </footer>
+</div>
+
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

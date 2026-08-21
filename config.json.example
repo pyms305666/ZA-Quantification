@@ -1,0 +1,17 @@
+{
+  "tqsdk": {
+    "account": "你的天勤账号（手机号）",
+    "password": "你的天勤密码"
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "log_level": "info"
+  },
+  "risk": {
+    "account_equity": 50000,
+    "max_loss_per_trade": 900,
+    "risk_percent": 1.8,
+    "max_contracts": 10
+  }
+}
