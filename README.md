@@ -1,7 +1,15 @@
-# 期货评估器（Market Data Gateway + 决策评估 + Web UI）
+# ZA量化（行情网关 + 决策评估 + Web UI）v1.1.1
 
 基于 [TqSdk](https://github.com/shinnytech/tqsdk-python) 的国内期货行情网关与决策评估系统。
 **提供行情读取、合约评估（多/空/观望 + 止损/目标/风险）与专业 K 线界面；不涉及下单与自动交易。**
+
+## 直接运行（Windows 可执行文件）
+
+- 打包产物：`dist/ZA量化.exe`（单文件，75MB，含 Python 运行时与天勤 SDK）
+- 首次运行：自动生成 `config.json` 模板并打开浏览器，填入天勤账号密码后重启即可
+- 图标：两个角度差 45° 的正方形（青色正放 + 金色旋转 45°）
+- 重新打包：`pip install pyinstaller pillow` 后执行
+  `pyinstaller --noconfirm --clean --onefile --name "ZA量化" --icon assets/icon.ico --add-data "static;static" --add-data "config.json.example;." --add-data "VERSION;." launcher.py`
 
 ```
                     ┌─────────────────────┐
