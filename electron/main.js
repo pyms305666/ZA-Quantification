@@ -25,6 +25,14 @@ const SERVER_URL = "http://127.0.0.1:8000";
 const PROJECT_DIR = path.join(__dirname, "..");   // 项目根目录（electron/ 的上一级）
 const LAUNCHER = path.join(PROJECT_DIR, "launcher.py");  // 后端启动脚本
 
+// 记录"由我们启动的后端子进程"。
+// 为什么要记？——"谁创建，谁负责清理"：
+//   如果我们自动拉起了一个 python，那软件退出时就要负责把它关掉，
+//   否则用户关掉窗口后，后台会残留一个 python 进程（占端口、占内存）。
+// 注意：如果后端是用户自己先启动的，backendProcess 就是 null，
+//       退出时我们不去碰它（不能乱杀用户自己跑的服务）。
+let backendProcess = null;
+
 // ---------------------------------------------------------------------
 // 第二步：小工具函数
 // ---------------------------------------------------------------------
@@ -69,6 +77,7 @@ async function ensureServer() {
     cwd: PROJECT_DIR,
     stdio: "ignore",
   });
+  backendProcess = child;   // 记下来，退出时好清理
 
   // 轮询等待：最多 30 秒（60 次 × 0.5 秒）
   for (let i = 0; i < 60; i++) {
@@ -141,10 +150,20 @@ app.whenReady().then(async () => {
 });
 
 // ---------------------------------------------------------------------
-// 第四步：窗口全关时退出
+// 第四步：窗口全关时退出，并清理我们启动的后端
 // ---------------------------------------------------------------------
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+// before-quit = 应用真正退出前的那一刻（关窗口之后、进程结束之前）
+// 在这里做"清理工作"：把由我们 spawn 出来的 python 后端关掉
+app.on("before-quit", () => {
+  if (backendProcess) {
+    console.log("[ZA量化] 关闭后端服务");
+    backendProcess.kill();   // 给子进程发"终止"信号
+    backendProcess = null;
   }
 });
