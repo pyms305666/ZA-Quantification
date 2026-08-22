@@ -21,5 +21,11 @@ dist/
 build/
 *.spec
 
+# Electron 依赖与产物
+electron/node_modules/
+electron/electron-test.*
+electron/dist/
+electron/out/
+
 # 图标与打包脚本产物之外的临时文件
 *.tmp
