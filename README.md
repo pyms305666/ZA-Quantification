@@ -1,15 +1,26 @@
-# ZA量化（行情网关 + 决策评估 + Web UI）v1.1.1
+# ZA量化（行情网关 + 决策评估 + Web UI）v1.2.0-c-diff ·【C 直连版】
 
-基于 [TqSdk](https://github.com/shinnytech/tqsdk-python) 的国内期货行情网关与决策评估系统。
+> **本分支路线：C**（`route-c-diff-direct`）
+> - 弃用 TqSdk，数据层直连天勤 DIFF 协议（`tqdiff/` 包）：
+>   OAuth 登录 → 名称服务换行情地址 → openmd 静态合约文件（一次拉取 + 24h 磁盘缓存）→
+>   WebSocket `subscribe_quote` / `set_chart`；
+> - 合约目录不再逐批查询（静态文件一次到位），K 线按需订阅异步到达，
+>   全部命令为协程并发，无队列堵塞/活锁问题；
+> - `tq/client.py` 只是兼容适配层，tq/instruments、tq/subscriber、api/、market/ 零改动；
+> - 依赖变化：不再需要 `tqsdk`，改为 `websockets` + `requests`（更轻）；
+> - 兄弟分支：`route-ab-sync-coroutine`（**A+B 路线**，保留 TqSdk 的渐进修复）。
+> - 打包产物名：`dist/ZA量化-C直连版.exe`（A+B 分支为 `ZA量化-AB协程版.exe`）。
+
+基于 [天勤 DIFF 协议](https://github.com/shinnytech/tqsdk-python)（与 TqSdk 同源数据服务）的国内期货行情网关与决策评估系统。
 **提供行情读取、合约评估（多/空/观望 + 止损/目标/风险）与专业 K 线界面；不涉及下单与自动交易。**
 
 ## 直接运行（Windows 可执行文件）
 
-- 打包产物：`dist/ZA量化.exe`（单文件，75MB，含 Python 运行时与天勤 SDK）
+- 打包产物：`dist/ZA量化-C直连版.exe`（单文件，含 Python 运行时；C 路线专用命名）
 - 首次运行：自动生成 `config.json` 模板并打开浏览器，填入天勤账号密码后重启即可
 - 图标：两个角度差 45° 的正方形（青色正放 + 金色旋转 45°）
 - 重新打包：`pip install pyinstaller pillow` 后执行
-  `pyinstaller --noconfirm --clean --onefile --name "ZA量化" --icon assets/icon.ico --add-data "static;static" --add-data "config.json.example;." --add-data "VERSION;." launcher.py`
+  `pyinstaller --noconfirm --clean --onefile --name "ZA量化-C直连版" --icon assets/icon.ico --add-data "static;static" --add-data "config.json.example;." --add-data "VERSION;." launcher.py`
 
 ```
                     ┌─────────────────────┐
@@ -97,7 +108,8 @@ python main.py
 
 ```
 ├── main.py / config.py / config.json(.example)
-├── tq/       TqSdk 连接层（client 事件循环 / instruments 合约发现 / subscriber 订阅）
+├── tq/       数据层兼容适配（client 为 tqdiff 的兼容壳；instruments 合约发现 / subscriber 订阅）
+├── tqdiff/   C 路线 DIFF 协议直连实现（auth 认证与合约文件 / client WebSocket 行情）
 ├── market/   行情核心（model / cache / processor）+ 指标库 + 决策引擎
 ├── api/      FastAPI（http REST + websocket 推送）
 ├── static/   Web 前端（index.html / app.js / style.css / vendor/echarts.min.js）

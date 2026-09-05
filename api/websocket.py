@@ -72,7 +72,9 @@ def create_ws_router(services: "Services") -> APIRouter:
                 if action == "subscribe":
                     result = await asyncio.to_thread(services.subscriptions.subscribe, list(symbols))
                     await websocket.send_json({"type": "subscribed", **result})
-                    for symbol in result["subscribed"]:
+                    # 已订阅(skipped)的合约也要补发快照：休市时段无行情推送，
+                    # 否则页面在订阅已存在时永远收不到首笔行情
+                    for symbol in dict.fromkeys(result["subscribed"] + result.get("skipped", [])):
                         cached = services.cache.get(symbol)
                         if cached is not None:
                             await websocket.send_json(

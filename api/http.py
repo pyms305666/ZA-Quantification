@@ -12,6 +12,8 @@ DELETE /api/v1/subscriptions/{symbol} 退订
 
 from __future__ import annotations
 
+import logging
+
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
@@ -19,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,6 +38,7 @@ KLINE_PERIODS = {
     60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线",
 }
 DECISION_PERIODS = (86400, 3600, 900, 300)
+ROUTE_NAME = "C 直连版"  # 数据层路线标识：DIFF 协议直连，不依赖 TqSdk
 
 
 class SubscribeRequest(BaseModel):
@@ -75,7 +78,10 @@ def build_services(config: Config) -> Services:
         cache=cache,
         connections=connections,
     )
-    client.set_callbacks(on_quote_change=services.on_quote_change)
+    def on_status(status: str) -> None:
+        logging.getLogger("gateway.diff").info("行情连接状态：%s", status)
+
+    client.set_callbacks(on_quote_change=services.on_quote_change, on_status=on_status)
     return services
 
 
@@ -83,6 +89,11 @@ def create_app(config: Config) -> FastAPI:
     services = build_services(config)
     app = FastAPI(title="国内期货行情网关", version="0.2.0", lifespan=_lifespan(services))
     app.state.services = services
+
+    @app.exception_handler(TqClientError)
+    async def tq_client_error_handler(request: Request, error: TqClientError) -> JSONResponse:
+        # DIFF 命令失败统一映射为 503 + 结构化错误，不再以 500 traceback 形式出现
+        return JSONResponse(status_code=503, content={"detail": str(error)})
 
     def get_services(request: Request) -> Services:
         return request.app.state.services
@@ -137,6 +148,7 @@ def create_app(config: Config) -> FastAPI:
             "subscribed": services.subscriptions.subscribed(),
             "quote_count": len(services.cache),
             "futures_count": futures_count,
+            "route": ROUTE_NAME,
         }
 
     @router.get("/api/v1/instruments")

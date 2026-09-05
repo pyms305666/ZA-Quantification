@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import faulthandler
+import logging
 import sys
 
 import uvicorn
@@ -20,6 +21,7 @@ from config import load_config
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     # 诊断：每 30 秒转储所有线程栈到 stderr（python main.py --debug-stack）
     if "--debug-stack" in sys.argv:
         faulthandler.dump_traceback_later(30, repeat=True, file=sys.stderr)
