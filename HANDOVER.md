@@ -38,14 +38,14 @@
 |---|---|---|---|
 | `master` | v1.1.1（基线） | 保留 | 原始版本 + 问题分析文档 `docs/07` + 测试截图。**未合入任何路线修复**，仅作历史基线 |
 | `route-ab-sync-coroutine` | **v1.2.0-ab** | ✅ 已实测 | A+B 路线（保留 TqSdk 的修复），提交 `43e39a3` |
-| `route-c-diff-direct` | **v1.2.0-c-diff** | ✅ 已实测 | C 路线（DIFF 协议直连），提交 `8fcf71a`，**当前推荐主线** |
+| `route-c-diff-direct` | **v1.2.1-c-diff** | ✅ 已实测 | C 路线（DIFF 协议直连），提交 `273c8b4`（含冷启动 hotfix），**当前推荐主线** |
 
 ### 1.2 可执行文件（`dist/`，未入库，可按 §7 重新打包）
 
 | 文件 | 大小 | 对应路线 |
 |---|---|---|
 | `ZA量化-AB协程版.exe` | 76 MB | A+B（含 Python 运行时 + TqSdk + pandas） |
-| `ZA量化-C直连版.exe` | 16 MB | C（含 Python 运行时 + websockets，已剔除 tqsdk） |
+| `ZA量化-C直连版.exe` | 16 MB | C（含 Python 运行时 + websockets，已剔除 tqsdk；**v1.2.1 重建版**） |
 | `ZA量化.exe` | 76 MB | 旧 v1.1.1 遗留，可删除 |
 
 两个新 exe 均已通过冒烟测试（启动 → 天勤连接 → K 线/行情接口验证，见 §8.4）。
@@ -112,7 +112,8 @@ A+B 分支保留作为 TqSdk 生态的参照实现；合并策略见 §11。
             ↓ mdurl = wss://free-api.shinnytech.com/t/nfmd/front/mobile
               ★ 实测坑：stock=false 返回的新前置只有快照、没有 K 线历史，必须 stock=true
 ③ 合约目录（后台并行） GET openmd.shinnytech.com/t/md/symbols/latest.json
-            ↓ 全量 JSON（期货+期权+指数，约 10~20MB），流式下载落盘 .tqsdk/symbol_file.json，24h 缓存
+            ↓ 全量 JSON（期货+期权+指数+组合，实测约 330MB / 23.9 万合约），流式下载落盘
+              .tqsdk/symbol_file.json，24h 缓存；下载期间行情/K线不受影响（~0.7MB/s 网络实测 8 分钟）
 ④ WebSocket DIFF 会话  客户端发 {"aid":"peek_message"} → 服务器回 {"aid":"rtn_data","data":[...diffs]}
             行情订阅： {"aid":"subscribe_quote","ins_list":"SHFE.rb2610,DCE.m2609"}
             K线订阅： {"aid":"set_chart","chart_id":<id>,"ins_list":..,"duration":<纳秒>,"view_width":N}
@@ -371,6 +372,8 @@ python -m unittest discover -s tests -v
 | 6 | 低 | 前端 `fetchJSON` 外部 signal 与自身超时并存（已兼容）；K 线最新价虚线标签右缘轻微裁剪 | 视觉小瑕疵 |
 | 7 | 低 | 免费账户合约"剩余天数"字段 AB 路线偶发为 null（C 路线由 expire_datetime 自算） | 不影响订阅拒绝逻辑 |
 | 8 | 提示 | 免费行情非交易时段无报价（README 已声明） | 属数据源限制 |
+| 9 | 已修复 | **v1.2.0-c 冷启动崩溃**（已在 v1.2.1-c-diff 修复）：目录等待把 asyncio.Event 误传给 shield，冷启动时五档/决策/合约列表全挂（报"An asyncio.Future... required"或"合约不存在"） | 已修复并回归；教训：Event 不是 awaitable，须 wait()；冷启动实测不可省略 |
+| 10 | 已更正 | 合约文件实测约 330MB（v1.2.0 时误记 10~20MB），冷启动首次下载在普通宽带约 5~10 分钟 | 已加流式进度日志；缓存 24h 有效，平时秒级 |
 
 ---
 
