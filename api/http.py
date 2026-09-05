@@ -57,7 +57,6 @@ class Services:
     """网关运行时服务集合；HTTP / WS 只通过它访问行情核心。"""
 
     config: Config
-    auto_exit_idle_seconds: Optional[int] = None   # 无浏览器连接自动退出阈值（None=不启用）
     client: TqClient
     instruments: InstrumentManager
     subscriptions: SubscriptionManager
@@ -65,6 +64,7 @@ class Services:
     connections: ConnectionManager
     broadcast_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     loop: Optional[asyncio.AbstractEventLoop] = None
+    auto_exit_idle_seconds: Optional[int] = None   # 无浏览器连接自动退出阈值（None=不启用）
 
     def on_quote_change(self, quote: object) -> None:
         """在 tqsdk 事件循环线程内被调用：只写缓存并投递到异步队列。"""
