@@ -141,6 +141,25 @@
   .me-row .arrow { margin-left: 8px; color: #4a5560; }
   .me-row.danger { color: #ef5350; }
   .ver { text-align: center; font-size: 10px; color: #4a5560; margin-top: 14px; }
+
+  /* 决策精简面板（按钮下方内嵌展开） */
+  .content.scrollable { overflow-y: auto; }
+  .dc-quick { margin: 8px 12px 12px; background: #1a2029; border: 1px solid #2a313c;
+              border-radius: 14px; padding: 14px; }
+  .dc-quick.hidden { display: none; }
+  .dcq-head { display: flex; justify-content: space-between; align-items: center; }
+  .dcq-head .d { font-size: 22px; font-weight: 800; }
+  .dcq-head .s { font-size: 12px; color: #8b96a3; }
+  .dcq-bar { height: 6px; border-radius: 3px; background: #12161d; display: flex; overflow: hidden; margin: 10px 0 12px; }
+  .dcq-bar .l { background: #ef5350; width: 71%; }
+  .dcq-bar .r { flex: 1; background: #26a69a; }
+  .dcq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .dcq-grid > div { background: #12161d; border-radius: 10px; padding: 9px 11px; }
+  .dcq-grid label { font-size: 10px; color: #8b96a3; display: block; }
+  .dcq-grid .v { font-size: 14px; font-weight: 700; margin-top: 2px; }
+  .dcq-grid .v.muted { color: #8b96a3; font-weight: 400; }
+  .dcq-more { text-align: center; color: #4db6e6; font-size: 12px; margin-top: 12px; }
+  .btn-decision.active { background: rgba(224,169,60,0.12); }
 </style>
 </head>
 <body>
@@ -202,10 +221,10 @@
 <!-- ═══════════ 屏幕 2：K线 ═══════════ -->
 <div class="phone-wrap">
   <div class="phone-label">② K 线详情</div>
-  <div class="phone-note">6 周期切换 · 捏合缩放/单指平移/长按十字线 · 主图 MA · 副图 MACD · 底部五档摘要 + 决策入口</div>
+  <div class="phone-note">6 周期切换 · 触控缩放/平移/十字线 · 主图 MA · 副图 MACD · 点决策按钮内嵌展开精简面板（方向/多空分/入场/止损/双目标）· 完整评估入口保留</div>
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="icons">●●●● ⌁ ▮</span></div>
-    <div class="content">
+    <div class="content scrollable">
       <div class="nav">
         <span style="font-size:20px">‹</span>
         <div><div class="title" style="font-size:15px">螺纹2610</div><div class="sub num">SHFE.rb2610</div></div>
@@ -230,7 +249,18 @@
         <div class="cell"><div class="k">最新</div><div class="num up">3,083.00</div></div>
         <div class="cell"><div class="k">卖一</div><div class="num up">3,083.00 · 411</div></div>
       </div>
-      <div class="btn-decision">⚖ 决策评估：观望 多53/空21 ›</div>
+      <div class="btn-decision" id="btn-dc">⚖ 决策评估：观望 多53/空21 <span id="dc-caret">›</span></div>
+      <div class="dc-quick hidden" id="dc-quick">
+        <div class="dcq-head"><span class="d amber">观望</span><span class="s">多 53 · 空 21 · 总分 53</span></div>
+        <div class="dcq-bar"><div class="l"></div><div class="r"></div></div>
+        <div class="dcq-grid">
+          <div><label>入场参考</label><div class="v num">3,083.00</div></div>
+          <div><label>止损 (1.5×ATR)</label><div class="v muted">待信号</div></div>
+          <div><label>目标一 (1.5R)</label><div class="v muted">待信号</div></div>
+          <div><label>目标二 (3R)</label><div class="v muted">待信号</div></div>
+        </div>
+        <div class="dcq-more">查看完整评估（依据 · 手数 · 风险） ›</div>
+      </div>
     </div>
     <div class="tabbar">
       <div class="tab"><span class="ic">📈</span>行情</div>
@@ -442,6 +472,13 @@ function drawMacd(id, seed) {
 window.addEventListener("load", () => {
   drawCandles("c-k", 20260905, 34);
   drawMacd("c-m", 8888);
+  document.getElementById("btn-dc").addEventListener("click", () => {
+    const panel = document.getElementById("dc-quick");
+    const caret = document.getElementById("dc-caret");
+    panel.classList.toggle("hidden");
+    document.getElementById("btn-dc").classList.toggle("active");
+    caret.textContent = panel.classList.contains("hidden") ? "›" : "⌄";
+  });
 });
 </script>
 </body>
