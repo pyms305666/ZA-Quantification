@@ -22,6 +22,7 @@ const path = require("path");
 const { spawn } = require("child_process");   // ← 新增：用来启动 Python 服务
 
 const SERVER_URL = "http://127.0.0.1:8000";
+const MY_ROUTE = "A+B 协程版";   // 本构建的路线标识（与 /api/v1/status 的 route 一致）
 const PROJECT_DIR = path.join(__dirname, "..");   // 项目根目录（electron/ 的上一级）
 const LAUNCHER = path.join(PROJECT_DIR, "launcher.py");  // 后端启动脚本
 
@@ -46,13 +47,21 @@ function sleep(ms) {
 }
 
 // 探测后端是否活着（v1 就有，原样保留）
-async function isServerUp() {
+async function whatIsOnPort() {
+  // 探测 8000 端口：{running: 是否有 ZA量化 服务, route: 哪条路线}
   try {
     const resp = await fetch(SERVER_URL + "/api/v1/status");
-    return resp.ok;
+    if (!resp.ok) return { running: false, route: null };
+    const data = await resp.json();
+    return { running: true, route: data.route || "未知版本" };
   } catch (error) {
-    return false;
+    return { running: false, route: null };
   }
+}
+
+async function isServerUp() {
+  const st = await whatIsOnPort();
+  return st.running && st.route === MY_ROUTE;   // 只有"本版本"才算就绪
 }
 
 // 确保后端在跑：
@@ -61,9 +70,16 @@ async function isServerUp() {
 //   3) 每 500ms 探测一次，最多等 60 次（30 秒），等它就绪
 // 这是"守护进程"最常见的写法：检查 → 拉起 → 等待 → 确认
 async function ensureServer() {
-  if (await isServerUp()) {
-    console.log("[ZA量化] 检测到后端已运行");
-    return true;
+  const onPort = await whatIsOnPort();
+  if (onPort.running) {
+    if (onPort.route === MY_ROUTE) {
+      console.log("[ZA量化] 检测到本版本后端已在运行，直接使用");
+      return true;
+    }
+    // 8000 上是另一条路线：不能共用端口，也不必 spawn（绑不上）
+    portBlockedBy = onPort.route;
+    console.log(`[ZA量化] 8000 端口被另一条路线占用：${onPort.route}（本版本是 ${MY_ROUTE}）`);
+    return false;
   }
 
   console.log("[ZA量化] 后端未运行，正在自动启动 python launcher.py ...");
@@ -82,7 +98,8 @@ async function ensureServer() {
   // 轮询等待：最多 30 秒（60 次 × 0.5 秒）
   for (let i = 0; i < 60; i++) {
     await sleep(500);
-    if (await isServerUp()) {
+    const st = await whatIsOnPort();
+    if (st.running && st.route === MY_ROUTE) {
       console.log("[ZA量化] 后端已就绪");
       return true;
     }
@@ -117,6 +134,22 @@ app.whenReady().then(async () => {
   // ---------- 3.2 根据后端状态加载内容 ----------
   if (serverReady) {
     await win.loadURL(SERVER_URL);
+  } else if (portBlockedBy) {
+    // 端口被另一条路线占用：说清楚是谁占的、怎么处理
+    await win.loadURL(
+      "data:text/html;charset=utf-8," +
+        encodeURIComponent(`<!DOCTYPE html>
+<html lang="zh-CN">
+<body style="font-family:'Microsoft YaHei UI';text-align:center;padding-top:120px;color:#555;">
+  <h2 style="color:#333;">ZA量化 · 端口被占用</h2>
+  <p>8000 端口已被 <b style="color:#c00;">${portBlockedBy}</b> 占用，</p>
+  <p>本次要启动的是 <b>${MY_ROUTE}</b>。</p>
+  <p style="font-size:13px;color:#999;">两条路线共用 8000 端口，不能同时运行：<br>
+  ① 任务管理器里结束另一个 ZA量化 进程后重试；<br>
+  ② 或修改 config.json 的 server.port 给本版本换端口。</p>
+</body>
+</html>`)
+    );
   } else {
     // 后端没起来：显示提示页（内容就是一段 HTML 字符串）
     await win.loadURL(
