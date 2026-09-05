@@ -110,6 +110,11 @@ class DiffClient:
     def account(self) -> str:
         return self._account
 
+    @property
+    def catalog_ready(self) -> bool:
+        """合约目录是否已就绪（供接口区分"下载中"与"合约不存在"）。"""
+        return self._file_loaded.is_set()
+
     def _set_connected(self, value: bool) -> None:
         with self._lock:
             self._connected = value
@@ -255,12 +260,17 @@ class DiffClient:
                 await asyncio.sleep(10.0)
 
     async def _wait_file(self, timeout: float) -> bool:
-        """等待合约目录就绪（K 线/订阅不依赖它；目录查询依赖）。"""
+        """等待合约目录就绪（K 线/订阅不依赖它；目录查询依赖）。
+
+        注意：必须 await Event.wait()（协程）——Event 本身不是 awaitable，
+        直接丢给 asyncio.shield/wait_for 会抛
+        "An asyncio.Future, a coroutine or an awaitable is required"。
+        """
         if self._file_loaded.is_set():
             return True
         self._ensure_symbol_file_task()
         try:
-            await asyncio.wait_for(asyncio.shield(self._file_loaded), timeout)
+            await asyncio.wait_for(self._file_loaded.wait(), timeout)
         except asyncio.TimeoutError:
             return False
         return True

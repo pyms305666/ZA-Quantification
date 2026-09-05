@@ -136,7 +136,8 @@ def create_app(config: Config) -> FastAPI:
     @router.get("/api/v1/status")
     def status(services: Services = Depends(get_services)) -> dict:
         futures_count = None
-        if services.client.connected:
+        # 目录后台下载中时不等待：status 必须始终秒回
+        if services.client.connected and getattr(services.client, "catalog_ready", True):
             try:
                 futures_count = len(services.instruments.futures())
             except TqClientError:
@@ -195,6 +196,9 @@ def create_app(config: Config) -> FastAPI:
             raise HTTPException(status_code=422, detail=f"合约代码无法解析：{symbol}")
         instrument = services.instruments.get(normalized)
         if instrument is None:
+            if not getattr(services.client, "catalog_ready", True):
+                # 目录还在后台下载 ≠ 合约不存在：让前端稍后再来
+                raise HTTPException(status_code=503, detail="合约目录后台下载中，请稍候重试")
             raise HTTPException(status_code=422, detail=f"合约不存在：{normalized}")
         cached = services.cache.get(normalized)
         if cached is None:

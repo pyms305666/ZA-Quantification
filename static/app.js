@@ -15,6 +15,7 @@ const state = {
   instruments: [],
   exchange: "",  // 交易所过滤
   watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
+  instPoll: null,   // 合约目录失败/未就绪时的自动重试定时器
 };
 
 /* ---------------- 工具 ---------------- */
@@ -92,7 +93,10 @@ async function loadInstruments() {
     $("inst-count").textContent = `共 ${data.total} 个`;
     renderContractList();
   } catch (e) {
-    $("inst-count").textContent = `未连接（${e.message}）`;
+    // 目录未就绪/网络抖动 ≠ 未连接：给出准确文案并自动重试
+    $("inst-count").textContent = `加载中（${e.message}），5秒后重试`;
+    clearTimeout(state.instPoll);
+    state.instPoll = setTimeout(loadInstruments, 5000);
   }
 }
 
