@@ -150,3 +150,33 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #2c3644; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 天勤账户登录 ---------- */
+#toolbar .account-btn {
+  background: transparent; color: var(--cyan); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+}
+#toolbar .account-btn:hover { border-color: var(--cyan); }
+.modal {
+  position: fixed; inset: 0; background: rgba(6, 8, 11, 0.72);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal.hidden { display: none; }
+.modal-box {
+  width: 360px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 22px; display: flex; flex-direction: column; gap: 12px;
+}
+.modal-box h3 { font-size: 16px; }
+.modal-box .muted { font-size: 11px; line-height: 1.6; }
+.modal-box input {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: 9px 10px; border-radius: 4px; outline: none; font-size: 13px;
+}
+.modal-box input:focus { border-color: var(--cyan); }
+.auth-error { color: var(--up); font-size: 12px; min-height: 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-actions button {
+  padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; border: 1px solid var(--border);
+}
+.modal-actions .ghost { background: transparent; color: var(--muted); }
+.modal-actions .primary { background: var(--accent); color: #fff; border-color: #347565; }

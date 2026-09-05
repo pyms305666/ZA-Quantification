@@ -1,7 +1,7 @@
 {
   "tqsdk": {
-    "account": "你的天勤账号（手机号）",
-    "password": "你的天勤密码"
+    "account": "",
+    "password": ""
   },
   "server": {
     "host": "127.0.0.1",

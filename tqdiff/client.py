@@ -111,6 +111,11 @@ class DiffClient:
         return self._account
 
     @property
+    def credentials_configured(self) -> bool:
+        with self._lock:
+            return bool(self._account and self._password)
+
+    @property
     def catalog_ready(self) -> bool:
         """合约目录是否已就绪（供接口区分"下载中"与"合约不存在"）。"""
         return self._file_loaded.is_set()
@@ -162,6 +167,27 @@ class DiffClient:
             raise TqClientError(f"命令超时（{timeout:g}s）：{command}") from None
         except Exception as error:
             raise TqClientError(str(error)) from error
+
+    def set_credentials(self, account: str, password: str) -> None:
+        """运行中设置天勤凭据（登录界面保存后调用）。
+
+        会话重连循环（_run_loop）每次尝试都会读取最新凭据，无需额外触发；
+        若当前已连接且账号发生变化，主动断开当前 WebSocket 以强制用新凭据重新登录。
+        """
+        self._account = account.strip()
+        self._password = password
+        self._error = None
+        loop, ws = self._loop, self._ws
+        if loop is not None and loop.is_running() and ws is not None:
+            self._status("收到账户信息，正在重新登录")
+            asyncio.run_coroutine_threadsafe(self._force_disconnect(), loop)
+
+    async def _force_disconnect(self) -> None:
+        try:
+            if self._ws is not None:
+                await self._ws.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ 主循环
 

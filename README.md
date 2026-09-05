@@ -61,8 +61,10 @@ python main.py
 # 浏览器打开 http://127.0.0.1:8000
 ```
 
-天勤账号配置在 `config.json`（本仓库已配置，密码勿提交；也可用环境变量
-`TQ_ACCOUNT` / `TQ_PASSWORD` 覆盖）。当前为天勤免费行情账户。
+**天勤账户**：首次打开页面会弹出登录框，输入天勤账号（[免费注册](https://www.tqsdk.com)）与密码，
+点"保存并连接"后凭据保存在本机 `.tqsdk/credentials.json`（该目录已被 .gitignore 排除，
+**不会提交进仓库**），下次启动自动复用，像 cookie 一样；点右上角"账户"按钮可随时更换。
+也可用环境变量 `TQ_ACCOUNT` / `TQ_PASSWORD` 覆盖。`config.json` 不含密码（也不被跟踪）。
 
 ## 界面功能（行业标准风格，红涨绿跌）
 

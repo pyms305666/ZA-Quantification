@@ -21,6 +21,7 @@
       <button data-period="86400">日线</button>
     </div>
     <div id="conn-status" class="conn-status">连接中…</div>
+    <button id="account-btn" class="account-btn" title="设置天勤账户">账户未登录</button>
   </header>
 
   <!-- 报价头 -->
@@ -80,6 +81,21 @@
       </div>
     </aside>
   </main>
+
+  <!-- 天勤账户登录弹窗：凭据只保存在本机（.tqsdk/credentials.json，已被 git 忽略） -->
+  <div id="auth-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3>天勤账户登录</h3>
+      <p class="muted">免费注册：www.tqsdk.com · 凭据仅保存在本机，不会提交到代码仓库</p>
+      <input id="auth-account" type="text" placeholder="天勤账号（手机号/邮箱）" autocomplete="username">
+      <input id="auth-password" type="password" placeholder="密码" autocomplete="current-password">
+      <div id="auth-error" class="auth-error"></div>
+      <div class="modal-actions">
+        <button id="auth-cancel" class="ghost">取消</button>
+        <button id="auth-save" class="primary">保存并连接</button>
+      </div>
+    </div>
+  </div>
 
   <footer id="statusbar">
     <span id="st-data">数据源：天勤行情（DIFF 直连）</span>

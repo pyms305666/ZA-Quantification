@@ -339,6 +339,51 @@ function renderDecision() {
     ${d.data_ok ? `<div class="dc-note">评分 ≥60 且多空差 ≥15 才给方向；仅为评估建议，不构成投资建议</div>` : `<div class="dc-note">${d.rationale[0] || "数据不足"}</div>`}`;
 }
 
+/* ---------------- 天勤账户登录 ---------------- */
+async function checkAuth() {
+  try {
+    const auth = await fetchJSON("/api/v1/auth");
+    const btn = $("account-btn");
+    btn.textContent = auth.configured ? `账户 ${auth.account}` : "账户未登录";
+    btn.style.color = auth.configured ? COLORS.muted : COLORS.amber;
+    if (!auth.configured) showAuthModal("请输入天勤账户以开始接收行情");
+    return auth.configured;
+  } catch (e) { /* 网关未启动 */ }
+}
+
+function showAuthModal(message) {
+  $("auth-error").textContent = message || "";
+  $("auth-modal").classList.remove("hidden");
+  setTimeout(() => $("auth-account").focus(), 50);
+}
+
+function hideAuthModal() {
+  $("auth-modal").classList.add("hidden");
+  $("auth-error").textContent = "";
+}
+
+async function saveAuth() {
+  const account = $("auth-account").value.trim();
+  const password = $("auth-password").value;
+  if (!account || !password) {
+    $("auth-error").textContent = "账号与密码不能为空";
+    return;
+  }
+  try {
+    await fetchJSON("/api/v1/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ account, password }),
+    });
+    hideAuthModal();
+    $("auth-password").value = "";
+    await checkAuth();
+    loadStatus(); loadInstruments(); loadKline(); loadDecision();
+  } catch (e) {
+    $("auth-error").textContent = e.message;
+  }
+}
+
 /* ---------------- 数据拉取 ---------------- */
 async function loadKline() {
   try {
@@ -453,6 +498,11 @@ $("exchange-tabs").addEventListener("click", (e) => {
 
 document.querySelector(".brand").addEventListener("click", toggleWatch);
 
+$("account-btn").addEventListener("click", () => showAuthModal());
+$("auth-save").addEventListener("click", saveAuth);
+$("auth-cancel").addEventListener("click", hideAuthModal);
+$("auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveAuth(); });
+
 async function init() {
   renderWatchlist();
   // 必须先应用初始 option（含 grid/xAxis/yAxis 定义）：renderChart 的 setOption 是
@@ -460,6 +510,7 @@ async function init() {
   // candlestick 初始化时 yAxisModel 为 undefined 会崩溃。
   chart.setOption(option);
   // 互不阻塞：状态、合约目录、K线、决策并行加载，避免单点卡死整页。
+  checkAuth();
   loadStatus();
   loadInstruments();
   $("qb-title").textContent = state.symbol;
