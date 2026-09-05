@@ -35,8 +35,13 @@ class 带统计的柜子(QuoteCache):
 
     def count_by_exchange(self, exchange: str) -> int:
         """统计柜子里指定交易所的行情条数"""
+        count = 0
+        with self._lock:
+            for quote in self._data.values():
+                if quote.exchange == exchange:
+                    count = count + 1
         # TODO: 实现（记得在 self._lock 内遍历，返回 int）
-        return 0  # TODO 完成前先返回 0，让自检优雅显示 ❌
+        return count   # TODO 完成前先返回 0，让自检优雅显示 ❌
 
 
 # ============ 以下是自检代码，不要改 ============
