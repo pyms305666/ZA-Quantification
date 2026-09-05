@@ -99,9 +99,15 @@ body {
 .contract-item .c-last { font-family: Consolas, monospace; font-size: 12px; }
 
 /* 中间图表 */
-#chart-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#chart-area { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 #chart { flex: 1; min-height: 0; }
 #chart-hint { text-align: center; font-size: 11px; padding: 3px 0; background: var(--surface); }
+.chart-loading {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
+  background: rgba(14, 17, 22, 0.75); border: 1px solid var(--border);
+  color: var(--cyan); font-size: 13px; padding: 8px 18px; border-radius: 6px; z-index: 10;
+}
+.chart-loading.hidden { display: none; }
 
 /* 右侧 */
 #right-panel {

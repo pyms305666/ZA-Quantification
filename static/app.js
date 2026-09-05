@@ -15,11 +15,24 @@ const state = {
   instruments: [],
   exchange: "",  // 交易所过滤
   watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
+  // 请求竞态防护：切换合约/周期后，旧请求的迟到响应直接丢弃
+  klineReq: 0,
+  decisionReq: 0,
+  klineAbort: null,
+  decisionAbort: null,
+  instPoll: null,   // 合约目录进度轮询定时器
 };
+
+const CHART_HINT = "滚轮缩放 · 拖拽平移 · 双击复位 · 十字光标查看";
 
 /* ---------------- 工具 ---------------- */
 async function fetchJSON(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
+  const external = options && options.signal;
+  if (external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener("abort", () => controller.abort(), { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await fetch(url, { ...(options || {}), signal: controller.signal });
@@ -89,11 +102,25 @@ async function loadInstruments() {
     const url = `/api/v1/instruments${params.toString() ? `?${params}` : ""}`;
     const data = await fetchJSON(url);
     state.instruments = data.items || [];
-    $("inst-count").textContent = `共 ${data.total} 个`;
     renderContractList();
+    const p = data.progress;
+    if (p && p.futures_total && !p.done) {
+      // 后台目录协程仍在回写：显示进度并继续轮询
+      $("inst-count").textContent = `目录加载中 ${p.info_cached}/${p.futures_total}`;
+      scheduleInstrumentRefresh(2000);
+    } else {
+      $("inst-count").textContent = `共 ${data.total} 个`;
+      clearTimeout(state.instPoll);
+    }
   } catch (e) {
-    $("inst-count").textContent = `未连接（${e.message}）`;
+    $("inst-count").textContent = `加载失败（${e.message}），5秒后重试`;
+    scheduleInstrumentRefresh(5000);
   }
+}
+
+function scheduleInstrumentRefresh(delay) {
+  clearTimeout(state.instPoll);
+  state.instPoll = setTimeout(loadInstruments, delay);
 }
 
 function renderContractList() {
@@ -336,22 +363,50 @@ function renderDecision() {
 }
 
 /* ---------------- 数据拉取 ---------------- */
+function setChartLoading(on) {
+  const box = $("chart-loading");
+  if (box) box.classList.toggle("hidden", !on);
+}
+
 async function loadKline() {
+  const reqId = ++state.klineReq;
+  if (state.klineAbort) state.klineAbort.abort();
+  const controller = new AbortController();
+  state.klineAbort = controller;
+  setChartLoading(true);
   try {
-    const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`, null, 45000);
+    const data = await fetchJSON(
+      `/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`,
+      { signal: controller.signal }, 45000);
+    if (reqId !== state.klineReq) return; // 期间已切换合约/周期：丢弃迟到响应
     state.kline = data.bars || [];
+    $("chart-hint").textContent = CHART_HINT; // 成功即恢复提示（清除历史错误文案）
     renderChart();
     updateLastPriceLine();
   } catch (e) {
+    if (reqId !== state.klineReq) return;
+    if (e.name === "AbortError") return;
     $("chart-hint").textContent = `K线加载失败：${e.message}`;
+  } finally {
+    if (reqId === state.klineReq) setChartLoading(false);
   }
 }
 
 async function loadDecision() {
+  const reqId = ++state.decisionReq;
+  if (state.decisionAbort) state.decisionAbort.abort();
+  const controller = new AbortController();
+  state.decisionAbort = controller;
   try {
-    state.decision = await fetchJSON(`/api/v1/decision/${encodeURIComponent(state.symbol)}`, null, 45000);
+    const data = await fetchJSON(
+      `/api/v1/decision/${encodeURIComponent(state.symbol)}`,
+      { signal: controller.signal }, 45000);
+    if (reqId !== state.decisionReq) return;
+    state.decision = data;
     renderDecision();
   } catch (e) {
+    if (reqId !== state.decisionReq) return;
+    if (e.name === "AbortError") return;
     state.decision = null;
     $("decision-body").innerHTML = `<div class="dc-note">评估不可用：${e.message}</div>`;
   }
@@ -363,6 +418,7 @@ async function loadStatus() {
     const ok = st.connected;
     $("conn-status").textContent = ok ? "● 天勤已连接" : `● 天勤未连接${st.error ? `：${st.error}` : ""}`;
     $("conn-status").style.color = ok ? COLORS.down : COLORS.amber;
+    $("st-data").textContent = `数据源：天勤 TqSdk${st.route ? ` · ${st.route}` : ""}`;
     $("st-ws").textContent = `WebSocket：${state.ws && state.ws.readyState === 1 ? "已连接" : "未连接"}`;
     $("st-ws").className = state.ws && state.ws.readyState === 1 ? "ok" : "err";
   } catch (e) { /* 网关未启动 */ }

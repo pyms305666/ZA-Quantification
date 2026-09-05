@@ -16,6 +16,7 @@ tqsdk 3.10 约定（已按源码核实）：
 
 from __future__ import annotations
 
+import asyncio
 import math
 import queue
 import re
@@ -28,9 +29,29 @@ from market.processor import to_market_quote
 
 FUTURE_SYMBOL_RE = re.compile(r"^[A-Z]+\.[a-z]{1,3}\d{3,4}$")
 
+CATALOG_BATCH_SIZE = 50          # 目录批量查询每批合约数
+CATALOG_BATCH_TIMEOUT = 25.0     # 单批查询超时（秒）
+CATALOG_IDLE_INTERVAL = 2.0      # 目录无待查合约时的轮询间隔（秒）
+
 
 class TqClientError(RuntimeError):
     """连接或命令执行失败（对外统一错误类型）。"""
+
+
+class _Cmd:
+    """队列命令对象：future 之外带 abandoned 标记。
+
+    等待方超时后把命令标记为 abandoned，事件循环执行前跳过——
+    避免"执行了也白执行"的命令把队列越堆越长（活锁根源之一）。
+    """
+
+    __slots__ = ("command", "args", "future", "abandoned")
+
+    def __init__(self, command: str, args: tuple, future: Future) -> None:
+        self.command = command
+        self.args = args
+        self.future = future
+        self.abandoned = False
 
 
 def _finite(value: Any) -> Optional[float]:
@@ -56,7 +77,7 @@ class TqClient:
         self._account = account
         self._password = password
         self._wait_deadline = max(0.05, min(5.0, wait_deadline))
-        self._commands: "queue.Queue[tuple[str, tuple, Future]]" = queue.Queue()
+        self._commands: "queue.Queue[_Cmd]" = queue.Queue()
         self._quotes: dict[str, Any] = {}
         self._kline_cache: dict[tuple[str, int], tuple[float, list[dict]]] = {}
         self._stop = threading.Event()
@@ -70,6 +91,12 @@ class TqClient:
         self._command_timeout_count = 0
         self._on_quote_change: Optional[Callable[[Any], None]] = None
         self._on_status: Optional[Callable[[str], None]] = None
+        # 目录后台任务（B 路线）：协程跑在 TqApi 自己的事件循环上，逐批查询不阻塞主循环
+        self._catalog_task: Optional[Any] = None
+        self._catalog_needs_futures: Optional[Callable[[], bool]] = None
+        self._catalog_on_futures: Optional[Callable[[list[str]], None]] = None
+        self._catalog_next_batch: Optional[Callable[[], Optional[list[str]]]] = None
+        self._catalog_on_result: Optional[Callable[[list[str], Optional[list[dict]]], None]] = None
 
     def set_callbacks(
         self,
@@ -78,6 +105,25 @@ class TqClient:
     ) -> None:
         self._on_quote_change = on_quote_change
         self._on_status = on_status
+
+    def set_catalog_hooks(
+        self,
+        needs_futures: Callable[[], bool],
+        on_futures: Callable[[list[str]], None],
+        next_batch: Callable[[], Optional[list[str]]],
+        on_result: Callable[[list[str], Optional[list[dict]]], None],
+    ) -> None:
+        """注册目录后台任务的钩子（由 InstrumentManager 提供，事件循环线程内回调）。
+
+        - needs_futures：是否还没有期货代码列表（协程据此先查列表）；
+        - on_futures：期货代码列表查询完成回写；
+        - next_batch：返回下一批待查合约（≤50 个），无待查时返回 None；
+        - on_result：批次查询完成（records 为 None 表示该批失败）。
+        """
+        self._catalog_needs_futures = needs_futures
+        self._catalog_on_futures = on_futures
+        self._catalog_next_batch = next_batch
+        self._catalog_on_result = on_result
 
     # ------------------------------------------------------------------ 状态
 
@@ -126,7 +172,7 @@ class TqClient:
     def close(self, timeout: float = 3.0) -> None:
         self._stop.set()
         try:
-            self._commands.put(("close", (), Future()))
+            self._commands.put(_Cmd("close", (), Future()))
         except Exception:
             pass
         thread = self._thread
@@ -134,25 +180,27 @@ class TqClient:
             thread.join(timeout=timeout)
         self._thread = None
 
-    def submit(self, command: str, *args: Any) -> Future:
-        """提交命令到事件循环线程；结果通过 Future 返回。"""
-        future: Future = Future()
-        self._commands.put((command, args, future))
-        return future
+    def submit(self, command: str, *args: Any) -> _Cmd:
+        """提交命令到事件循环线程；结果通过返回对象的 future 获取。"""
+        cmd = _Cmd(command, args, Future())
+        self._commands.put(cmd)
+        return cmd
 
     def run_command(self, command: str, *args: Any, timeout: float = 8.0) -> Any:
         """提交并阻塞等待结果；失败抛出 :class:`TqClientError`。
 
         连接未就绪（未连接 / 预热期内）时快速失败，绝不排队等待超时。
+        等待超时后命令被标记为 abandoned，事件循环将跳过执行（不再白占队列）。
         """
         if not self.ready:
             raise TqClientError("天勤连接初始化中，请稍候重试")
-        future = self.submit(command, *args)
+        cmd = self.submit(command, *args)
         try:
-            return future.result(timeout=timeout)
+            return cmd.future.result(timeout=timeout)
         except TqClientError:
             raise
         except TimeoutError:
+            cmd.abandoned = True
             self._note_command_timeout()
             raise TqClientError(f"命令超时（{timeout:g}s）：{command}") from None
         except Exception as error:
@@ -183,6 +231,7 @@ class TqClient:
             self._ready_since = time.monotonic()
             self._command_timeout_count = 0
         self._status("天勤已连接")
+        self._ensure_catalog_worker(api)
         try:
             while not self._stop.is_set():
                 if self._reconnect_requested:
@@ -207,6 +256,7 @@ class TqClient:
                         self._ready_since = time.monotonic()
                         self._command_timeout_count = 0
                     self._status("天勤已重连")
+                    self._ensure_catalog_worker(api)
                 try:
                     api.wait_update(deadline=time.time() + self._wait_deadline)
                 except Exception as error:
@@ -237,17 +287,19 @@ class TqClient:
     def _process_commands(self, api: Any) -> None:
         while True:
             try:
-                command, args, future = self._commands.get_nowait()
+                cmd = self._commands.get_nowait()
             except queue.Empty:
                 return
+            if cmd.abandoned:
+                continue  # 等待方已超时放弃：跳过执行，避免白占事件循环
             try:
-                if command == "close":
-                    future.set_result(None)
+                if cmd.command == "close":
+                    cmd.future.set_result(None)
                     self._stop.set()
                     return
-                future.set_result(self._execute(api, command, args))
+                cmd.future.set_result(self._execute(api, cmd.command, cmd.args))
             except Exception as error:
-                future.set_exception(error)
+                cmd.future.set_exception(error)
 
     def _execute(self, api: Any, command: str, args: tuple) -> Any:
         if command == "subscribe":
@@ -261,6 +313,9 @@ class TqClient:
             return self._get_instrument(api, args[0])
         if command == "get_instruments_info":
             return self._get_instruments_info(api, args[0])
+        if command == "start_catalog_worker":
+            self._ensure_catalog_worker(api)
+            return True
         if command == "query_instruments":
             return self._query_instruments(api)
         if command == "query_options":
@@ -432,6 +487,117 @@ class TqClient:
         except Exception:
             pass
 
+    # ------------------------------------------------------- 目录后台协程（B 路线）
+
+    def _ensure_catalog_worker(self, api: Any) -> None:
+        """在 TqApi 事件循环上挂目录后台协程（每条连接只挂一次）。
+
+        官方模式：api.create_task 创建的协程由主循环 wait_update 驱动，
+        每批查询用 await 等待，等待期间 K 线/订阅/行情推送照常处理，
+        彻底避免目录查询独占事件循环。
+        """
+        if self._catalog_task is not None and not self._catalog_task.done():
+            return
+        if self._catalog_next_batch is None or self._catalog_on_result is None:
+            return
+        self._catalog_task = api.create_task(self._catalog_worker(api))
+
+    async def _catalog_worker(self, api: Any) -> None:
+        """目录后台协程：先查期货代码列表，再逐批查询合约信息。
+
+        绝不在协程内调用阻塞版 wait_update（会卡死事件循环），
+        统一用 asyncio.wait_for + shield 等待 tqsdk 内部任务。
+        """
+        from tqsdk.objs_not_entity import TqSymbolDataFrame  # 延迟导入：未安装 tqsdk 时网关仍可启动
+
+        while not self._stop.is_set():
+            if self._catalog_needs_futures is not None and self._catalog_needs_futures():
+                try:
+                    symbols = await self._await_futures_query(api)
+                    self._catalog_on_futures(symbols)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    await asyncio.sleep(5.0)
+                    continue
+            batch = self._catalog_next_batch()
+            if not batch:
+                try:
+                    await asyncio.sleep(CATALOG_IDLE_INTERVAL)
+                except asyncio.CancelledError:
+                    raise
+                continue
+            try:
+                frame = TqSymbolDataFrame(api, batch, None)
+                await self._await_frame(api, frame, CATALOG_BATCH_TIMEOUT)
+                records = []
+                for index, symbol in enumerate(batch):
+                    try:
+                        records.append(_instrument_record(frame, symbol, index=index))
+                    except TqClientError:
+                        records.append(None)
+                self._catalog_on_result(batch, records)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._catalog_on_result(batch, None)  # 整批失败：交给上层冷却
+            await asyncio.sleep(0.05)
+
+    async def _await_futures_query(self, api: Any) -> list[str]:
+        """协程版期货代码列表查询（等价于 _query_instruments 的阻塞版）。"""
+        query = getattr(api, "query_quotes", None)
+        if query is None:
+            raise TqClientError("TqSdk 无 query_quotes 接口，请检查 tqsdk 版本")
+        try:
+            symbols = query(ins_class="FUTURE", expired=False)
+        except TypeError:
+            symbols = None  # 旧版本签名：无参数，返回全部行情代码
+        if symbols is None:
+            symbols = query()
+            await self._await_query_task(symbols, 15.0)
+            raw = list(symbols)
+            return sorted(item for item in raw if FUTURE_SYMBOL_RE.match(item))
+        await self._await_query_task(symbols, 15.0)
+        # 只保留国内六大交易所；KQD 是外盘主连（如 KQD.m@CME.6J），国内评估器不需要。
+        return sorted(symbol for symbol in symbols
+                      if not symbol.upper().startswith("KQD."))
+
+    async def _await_query_task(self, query_object: Any, timeout: float) -> None:
+        """等待 query 系列接口的内部任务完成（shield 防止超时取消 tqsdk 任务）。"""
+        task = getattr(query_object, "_task", None)
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout)
+        except TypeError:
+            # _task 不是可 await 对象（异常版本）：交给上层按超时失败处理
+            raise TqClientError("query 任务对象不可等待") from None
+        if hasattr(task, "done") and not task.done():
+            raise TqClientError("期货代码列表查询超时")
+
+    @staticmethod
+    async def _await_frame(api: Any, frame: Any, timeout: float) -> None:
+        """等待 TqSymbolDataFrame 内部任务完成（shield 防止超时取消 tqsdk 任务）。"""
+        task = getattr(frame, "_task", None)
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout)
+        except TypeError:
+            # _task 不是可 await 对象（异常版本）：退化为更新通知轮询
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + timeout
+            async with api.register_update_notify() as channel:
+                async for _ in channel:
+                    if task.done() or loop.time() > deadline:
+                        break
+        if hasattr(task, "done") and not task.done():
+            raise TqClientError("目录批量查询超时")
+        if hasattr(task, "exception") and task.done():
+            error = task.exception()
+            if error is not None:
+                raise TqClientError(f"目录批量查询失败：{error}")
+
     def _wait_task(self, api: Any, query_object: Any, timeout: float, message: str) -> None:
         """等待 query 系列接口的结果落地（内部任务完成）。"""
         task = getattr(query_object, "_task", None)
@@ -457,11 +623,11 @@ class TqClient:
     def _fail_pending_commands(self, error: Exception) -> None:
         while True:
             try:
-                _, _, future = self._commands.get_nowait()
+                cmd = self._commands.get_nowait()
             except queue.Empty:
                 return
-            if not future.done():
-                future.set_exception(error)
+            if not cmd.future.done():
+                cmd.future.set_exception(error)
 
 
 def _row_value(row: Any, key: str) -> Any:

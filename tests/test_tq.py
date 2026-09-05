@@ -21,6 +21,9 @@ class FakeClient:
         self.commands: list[tuple[str, tuple]] = []
         self.subscribed: set[str] = set()
 
+    def set_catalog_hooks(self, *args, **kwargs) -> None:
+        pass  # 假客户端无需目录后台协程
+
     def run_command(self, command: str, *args: object, timeout: float = 8.0) -> object:
         self.commands.append((command, args))
         if command == "get_instrument":
@@ -63,10 +66,25 @@ class NormalizeSymbolTests(unittest.TestCase):
 
 
 class InstrumentManagerTests(unittest.TestCase):
-    def test_list_and_get(self):
+    def _manager(self) -> tuple[InstrumentManager, FakeClient]:
         client = FakeClient()
-        manager = InstrumentManager(client)
+        return InstrumentManager(client), client
+
+    def test_futures_filled_by_worker_hook(self):
+        manager, _ = self._manager()
+        # 列表由后台协程回写（B 路线）：管理器只读缓存
+        self.assertEqual(manager.futures(), [])
+        self.assertTrue(manager._needs_futures())
+        manager._on_futures(CATALOG)
+        self.assertFalse(manager._needs_futures())
         self.assertEqual(manager.futures(), CATALOG)
+
+    def test_list_and_get(self):
+        manager, client = self._manager()
+        manager._on_futures(CATALOG)
+        # 模拟后台协程回写一批合约信息（记录结构与 get_instrument 一致）
+        record = client.run_command("get_instrument", "SHFE.rb2610")
+        manager._on_catalog_result(["SHFE.rb2610"], [record])
         item = manager.get("SHFE.rb2610")
         self.assertIsNotNone(item)
         assert item is not None
@@ -74,6 +92,27 @@ class InstrumentManagerTests(unittest.TestCase):
         self.assertEqual(item.name, "测试品种")
         records = manager.list(exchange="SHFE")
         self.assertEqual([r["symbol"] for r in records], ["SHFE.rb2610"])
+
+    def test_next_batch_skips_cached_and_cooldown(self):
+        manager, client = self._manager()
+        manager._on_futures(CATALOG)
+        record = client.run_command("get_instrument", "SHFE.rb2610")
+        manager._on_catalog_result(["SHFE.rb2610"], [record])
+        # 已缓存的不进批次；失败批进入冷却
+        self.assertNotIn("SHFE.rb2610", manager._next_catalog_batch())
+        manager._on_catalog_result(["DCE.m2609"], None)  # 整批失败 → 冷却
+        self.assertNotIn("DCE.m2609", manager._next_catalog_batch())
+
+    def test_progress(self):
+        manager, client = self._manager()
+        progress = manager.progress()
+        self.assertFalse(progress["done"])
+        manager._on_futures(CATALOG)
+        record = client.run_command("get_instrument", "SHFE.rb2610")
+        manager._on_catalog_result(["SHFE.rb2610"], [record])
+        progress = manager.progress()
+        self.assertEqual(progress["futures_total"], len(CATALOG))
+        self.assertEqual(progress["info_cached"], 1)
 
 
 class SubscriptionManagerTests(unittest.TestCase):

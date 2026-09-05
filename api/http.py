@@ -16,10 +16,10 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -36,6 +36,7 @@ KLINE_PERIODS = {
     60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线",
 }
 DECISION_PERIODS = (86400, 3600, 900, 300)
+ROUTE_NAME = "A+B 协程版"  # 数据层路线标识：写入 status，打包产物与提交信息同名
 
 
 class SubscribeRequest(BaseModel):
@@ -54,12 +55,25 @@ class Services:
     connections: ConnectionManager
     broadcast_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     loop: Optional[asyncio.AbstractEventLoop] = None
+    # 限制并发进入 TqSdk 命令等待的请求数：等待期不占线程池线程，
+    # 防止大量超时请求把 anyio 默认 40 线程全部占满（全站无响应的根源）。
+    command_semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(8))
 
     def on_quote_change(self, quote: object) -> None:
         """在 tqsdk 事件循环线程内被调用：只写缓存并投递到异步队列。"""
         self.cache.set(quote)  # type: ignore[arg-type]
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, quote)
+
+    async def run_command(self, command: str, *args: Any, timeout: float = 8.0) -> Any:
+        """带并发上限的命令等待：实际阻塞在线程池里，但并发数受信号量保护。"""
+        async with self.command_semaphore:
+            return await asyncio.to_thread(
+                self.client.run_command, command, *args, timeout=timeout)
+
+    async def normalize(self, symbol: str) -> Optional[str]:
+        """合约代码归一化（裸代码时可能发命令确认交易所，放线程池执行）。"""
+        return await asyncio.to_thread(normalize_symbol, self.client, symbol)
 
 
 def build_services(config: Config) -> Services:
@@ -83,6 +97,11 @@ def create_app(config: Config) -> FastAPI:
     services = build_services(config)
     app = FastAPI(title="国内期货行情网关", version="0.2.0", lifespan=_lifespan(services))
     app.state.services = services
+
+    @app.exception_handler(TqClientError)
+    async def tq_client_error_handler(request: Request, error: TqClientError) -> JSONResponse:
+        # 天勤命令失败统一映射为 503 + 结构化错误，不再以 500 traceback 形式出现
+        return JSONResponse(status_code=503, content={"detail": str(error)})
 
     def get_services(request: Request) -> Services:
         return request.app.state.services
@@ -124,19 +143,16 @@ def create_app(config: Config) -> FastAPI:
 
     @router.get("/api/v1/status")
     def status(services: Services = Depends(get_services)) -> dict:
-        futures_count = None
-        if services.client.connected:
-            try:
-                futures_count = len(services.instruments.futures())
-            except TqClientError:
-                pass
+        catalog = services.instruments.progress()
         return {
             "connected": services.client.connected,
             "account": mask_account(services.client.account) if services.client.account else "",
             "error": services.client.error,
             "subscribed": services.subscriptions.subscribed(),
             "quote_count": len(services.cache),
-            "futures_count": futures_count,
+            "futures_count": catalog["futures_total"],
+            "route": ROUTE_NAME,
+            "catalog": catalog,
         }
 
     @router.get("/api/v1/instruments")
@@ -144,7 +160,8 @@ def create_app(config: Config) -> FastAPI:
                     services: Services = Depends(get_services)) -> dict:
         require_connected(services)
         items = services.instruments.list(exchange=exchange.upper(), keyword=keyword, refresh=refresh)
-        return {"total": len(items), "exchange": exchange.upper(), "keyword": keyword, "items": items}
+        return {"total": len(items), "exchange": exchange.upper(), "keyword": keyword,
+                "items": items, "progress": services.instruments.progress()}
 
     @router.get("/api/v1/instruments/{exchange}")
     def instruments_by_exchange(exchange: str, services: Services = Depends(get_services)) -> dict:
@@ -162,47 +179,53 @@ def create_app(config: Config) -> FastAPI:
         return {"underlying": underlying, "total": len(symbols), "symbols": symbols}
 
     @router.get("/api/v1/kline/{symbol}")
-    def kline(symbol: str, period: int = 300, count: int = 200,
-              services: Services = Depends(get_services)) -> dict:
+    async def kline(symbol: str, period: int = 300, count: int = 200,
+                    services: Services = Depends(get_services)) -> dict:
         require_connected(services)
         if period not in KLINE_PERIODS:
             raise HTTPException(status_code=422, detail=f"不支持的周期：{period}，可选 {sorted(KLINE_PERIODS)}")
-        normalized = normalize_symbol(services.client, symbol)
+        normalized = await services.normalize(symbol)
         if normalized is None:
             raise HTTPException(status_code=422, detail=f"合约代码无法解析：{symbol}")
-        bars = services.client.run_command(
+        bars = await services.run_command(
             "get_kline", normalized, period, max(30, min(1000, count)), timeout=30.0)
         return {"symbol": normalized, "period": period, "unit": KLINE_PERIODS[period],
                 "count": len(bars), "bars": bars}
 
     @router.get("/api/v1/decision/{symbol}")
-    def decision(symbol: str, services: Services = Depends(get_services)) -> dict:
+    async def decision(symbol: str, services: Services = Depends(get_services)) -> dict:
         require_connected(services)
-        normalized = normalize_symbol(services.client, symbol)
+        normalized = await services.normalize(symbol)
         if normalized is None:
             raise HTTPException(status_code=422, detail=f"合约代码无法解析：{symbol}")
-        instrument = services.instruments.get(normalized)
+        instrument = await asyncio.to_thread(services.instruments.get, normalized)
         if instrument is None:
+            catalog = services.instruments.progress()
+            if not catalog["done"]:
+                # 目录还没加载完 ≠ 合约不存在：让前端稍后再来，而不是误报
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"合约目录加载中（{catalog['info_cached']}/{catalog['futures_total']}），请稍候重试")
             raise HTTPException(status_code=422, detail=f"合约不存在：{normalized}")
         cached = services.cache.get(normalized)
         if cached is None:
             return {"symbol": normalized, "pending": True, "message": "尚未收到该合约行情，请稍候"}
         klines: dict[int, list[dict]] = {}
         for period in DECISION_PERIODS:
-            klines[period] = services.client.run_command(
+            klines[period] = await services.run_command(
                 "get_kline", normalized, period, 200, timeout=30.0)
         return {"symbol": normalized, **evaluate(instrument, cached.to_dict(), klines, services.config.risk)}
 
     @router.get("/api/v1/quote/{symbol}")
-    def quote(symbol: str, services: Services = Depends(get_services)) -> dict:
+    async def quote(symbol: str, services: Services = Depends(get_services)) -> dict:
         require_connected(services)
-        normalized = normalize_symbol(services.client, symbol)
+        normalized = await services.normalize(symbol)
         if normalized is None:
             raise HTTPException(status_code=422, detail=f"合约代码无法解析：{symbol}")
         cached = services.cache.get(normalized)
         if cached is not None:
             return {"symbol": normalized, "data": cached.to_dict(), "pending": False}
-        result = services.subscriptions.subscribe([normalized])
+        result = await asyncio.to_thread(services.subscriptions.subscribe, [normalized])
         if result["failed"]:
             raise HTTPException(status_code=422, detail=result["failed"][0]["reason"])
         return {"symbol": normalized, "data": None, "pending": True,

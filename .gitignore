@@ -23,7 +23,7 @@ build/
 
 # Electron 依赖与产物
 electron/node_modules/
-electron/electron-test.*
+electron/electron-test*
 electron/dist/
 electron/out/
 

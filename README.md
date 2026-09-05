@@ -1,15 +1,24 @@
-# ZA量化（行情网关 + 决策评估 + Web UI）v1.1.1
+# ZA量化（行情网关 + 决策评估 + Web UI）v1.2.0-ab ·【A+B 协程版】
+
+> **本分支路线：A+B**（`route-ab-sync-coroutine`）
+> - A 最小修复：首屏不阻塞——合约目录改为后台进度式加载，前端竞态防护/加载态/错误自愈；
+> - B 协程化：按 TqSdk 官方模式（`api.create_task` + `await`）把逐批合约查询放到事件循环协程上，
+>   K 线/订阅/行情推送与目录加载并行，互不阻塞；
+> - 配套：命令超时可放弃（跳过执行）、FastAPI 端点 async 化 + 信号量限流、
+>   `TqClientError` 统一 503。
+> - 兄弟分支：`route-c-diff-direct`（**C 路线**，弃用 TqSdk，直连天勤 DIFF 协议）。
+> - 打包产物名：`dist/ZA量化-AB协程版.exe`（C 路线分支为 `ZA量化-C直连版.exe`）。
 
 基于 [TqSdk](https://github.com/shinnytech/tqsdk-python) 的国内期货行情网关与决策评估系统。
 **提供行情读取、合约评估（多/空/观望 + 止损/目标/风险）与专业 K 线界面；不涉及下单与自动交易。**
 
 ## 直接运行（Windows 可执行文件）
 
-- 打包产物：`dist/ZA量化.exe`（单文件，75MB，含 Python 运行时与天勤 SDK）
+- 打包产物：`dist/ZA量化-AB协程版.exe`（单文件，含 Python 运行时；AB 路线专用命名）
 - 首次运行：自动生成 `config.json` 模板并打开浏览器，填入天勤账号密码后重启即可
 - 图标：两个角度差 45° 的正方形（青色正放 + 金色旋转 45°）
 - 重新打包：`pip install pyinstaller pillow` 后执行
-  `pyinstaller --noconfirm --clean --onefile --name "ZA量化" --icon assets/icon.ico --add-data "static;static" --add-data "config.json.example;." --add-data "VERSION;." launcher.py`
+  `pyinstaller --noconfirm --clean --onefile --name "ZA量化-AB协程版" --icon assets/icon.ico --add-data "static;static" --add-data "config.json.example;." --add-data "VERSION;." launcher.py`
 
 ```
                     ┌─────────────────────┐

@@ -46,62 +46,81 @@ class InstrumentManager:
         self._futures: Optional[list[str]] = None
         self._info_cache: dict[str, Instrument] = {}
         self._failed_cache: dict[str, float] = {}  # 失败查询的冷却（避免轮询反复触发超时命令）
+        self._failed_cooldown = 30.0
+        # B 路线：期货代码列表 + 逐批合约信息全部由 TqApi 事件循环上的后台协程完成，
+        # 本管理器只提供钩子，HTTP 层永远不阻塞等目录。
+        client.set_catalog_hooks(
+            self._needs_futures, self._on_futures,
+            self._next_catalog_batch, self._on_catalog_result)
 
-    def futures(self, refresh: bool = False) -> list[str]:
-        """全部期货行情代码（如 ``SHFE.rb2610``），首次从 TqSdk 拉取后缓存。"""
+    # ----------------------------- 目录后台协程钩子（均在事件循环线程内被调用）
+
+    def _needs_futures(self) -> bool:
         with self._lock:
-            if self._futures is None or refresh:
-                symbols = self._client.run_command("query_instruments", timeout=30.0)
-                self._futures = symbols
-            return list(self._futures)
+            return self._futures is None
 
-    def list(self, exchange: str = "", keyword: str = "", refresh: bool = False) -> list[dict]:
-        """合约目录。exchange 为 ``SHFE`` 等交易所代码；keyword 匹配代码/名称。
+    def _on_futures(self, symbols: list[str]) -> None:
+        with self._lock:
+            self._futures = list(symbols)
 
-        先按代码本地预过滤，再对剩余合约批量查询信息（绝不逐合约单查）。
-        """
-        exchange = exchange.upper()
-        code_keyword = keyword.lower()
-        candidates: list[str] = []
-        for symbol in self.futures(refresh=refresh):
-            if exchange and not symbol.startswith(exchange + "."):
-                continue
-            if code_keyword and code_keyword not in symbol.lower():
-                continue
-            candidates.append(symbol)
-        if not candidates:
-            return []
-        missing = [symbol for symbol in candidates if symbol not in self._info_cache]
-        if missing:
-            records = self._client.run_command("get_instruments_info", missing, timeout=120.0)
-            with self._lock:
-                for symbol, record in records.items():
-                    if not record:
-                        continue
-                    self._info_cache[symbol] = Instrument(
-                        symbol=record["symbol"],
-                        exchange=record["exchange"],
-                        instrument_id=record["instrument_id"],
-                        name=record["name"],
-                        kind=record["kind"],
-                        expired=record["expired"],
-                        price_tick=record["price_tick"],
-                        volume_multiple=record["volume_multiple"],
-                    )
-        output: list[Instrument] = []
-        for symbol in candidates:
-            item = self._info_cache.get(symbol)
-            if item is None:
-                continue
-            if keyword:
-                haystack = f"{item.symbol} {item.instrument_id} {item.name}".lower()
-                if keyword.lower() not in haystack:
+    def _next_catalog_batch(self) -> Optional[list[str]]:
+        """取下一批待查合约（<=50 个，跳过已缓存与冷却中的）；无待查返回 None。"""
+        with self._lock:
+            if self._futures is None:
+                return None
+            now = time.monotonic()
+            pending: list[str] = []
+            for symbol in self._futures:
+                if symbol in self._info_cache:
                     continue
-            output.append(item)
-        return [item.to_dict() for item in output]
+                cooled = self._failed_cache.get(symbol)
+                if cooled is not None and now - cooled < self._failed_cooldown:
+                    continue
+                pending.append(symbol)
+                if len(pending) >= 50:
+                    break
+            return pending or None
+
+    def _on_catalog_result(self, batch: list[str], records: Optional[list[dict]]) -> None:
+        """批量查询完成：逐个写入缓存；records 为 None 表示整批失败，整批冷却。"""
+        with self._lock:
+            now = time.monotonic()
+            if records is None:
+                for symbol in batch:
+                    self._failed_cache[symbol] = now
+                return
+            for symbol, record in zip(batch, records):
+                if not record:
+                    self._failed_cache[symbol] = now
+                    continue
+                self._info_cache[symbol] = Instrument(
+                    symbol=record["symbol"],
+                    exchange=record["exchange"],
+                    instrument_id=record["instrument_id"],
+                    name=record["name"],
+                    kind=record["kind"],
+                    expired=record["expired"],
+                    price_tick=record["price_tick"],
+                    volume_multiple=record["volume_multiple"],
+                )
+
+    # -------------------------------------------------- 对外接口（全部非阻塞）
+
+    def progress(self) -> dict:
+        """目录加载进度（供 status / instruments 接口向前端展示）。"""
+        with self._lock:
+            total = len(self._futures) if self._futures is not None else None
+            cached = len(self._info_cache)
+            done = total is not None and cached >= total
+            return {"futures_total": total, "info_cached": cached, "done": done}
+
+    def futures(self) -> list[str]:
+        """已知的全部期货行情代码（只读缓存，列表由后台协程填充）。"""
+        with self._lock:
+            return list(self._futures or [])
 
     def get(self, symbol: str) -> Optional[Instrument]:
-        """单个合约的目录记录（带缓存；失败结果冷却 30 秒）。"""
+        """单个合约的目录记录（优先读缓存；未命中走单条查询，失败冷却）。"""
         normalized = normalize_symbol(self._client, symbol)
         if normalized is None:
             return None
@@ -135,12 +154,40 @@ class InstrumentManager:
             self._info_cache[normalized] = item
         return item
 
-    def options(self, underlying: str) -> list[str]:
-        """某标的所有期权行情代码（按需查询，不订阅）。"""
-        normalized = normalize_symbol(self._client, underlying)
-        if normalized is None:
-            raise TqClientError(f"无法解析标的合约：{underlying}")
-        return self._client.run_command("query_options", normalized, timeout=20.0)
+    def kick_catalog(self) -> None:
+        """确保目录后台协程已启动（幂等，连接未就绪时静默跳过）。"""
+        try:
+            self._client.run_command("start_catalog_worker", timeout=3.0)
+        except TqClientError:
+            pass
+
+    def list(self, exchange: str = "", keyword: str = "", refresh: bool = False) -> list[dict]:
+        """合约目录（只读缓存，绝不阻塞）。
+
+        exchange 为 ``SHFE`` 等交易所代码；keyword 匹配代码/名称。
+        尚未回写的合约等后台协程完成后，由前端按 progress 再次轮询获取。
+        """
+        self.kick_catalog()
+        if refresh:
+            with self._lock:
+                self._futures = None
+                self._info_cache.clear()
+                self._failed_cache.clear()
+        exchange = exchange.upper()
+        keyword_lower = (keyword or "").lower()
+        with self._lock:
+            snapshot = list(self._info_cache.values())
+        output: list[Instrument] = []
+        for item in snapshot:
+            if exchange and item.exchange != exchange:
+                continue
+            if keyword_lower:
+                haystack = f"{item.symbol} {item.instrument_id} {item.name}".lower()
+                if keyword_lower not in haystack:
+                    continue
+            output.append(item)
+        output.sort(key=lambda item: item.symbol)
+        return [item.to_dict() for item in output]
 
 
 def normalize_symbol(client: TqClient, symbol: str) -> Optional[str]:
