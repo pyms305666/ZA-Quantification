@@ -29,3 +29,8 @@ electron/out/
 
 # 图标与打包脚本产物之外的临时文件
 *.tmp
+
+# IDE 与笔记工具的本地配置（不进仓库）
+.idea/
+.obsidian/
+langs*.json
