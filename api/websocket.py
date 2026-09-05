@@ -16,7 +16,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+import time
+from typing import Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -32,15 +33,31 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        self._empty_since: Optional[float] = time.monotonic()   # 进程启动时就没有连接
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         async with self._lock:
             self._connections.add(websocket)
+            self._empty_since = None                # 有连接了，清空计时
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(websocket)
+            if not self._connections and self._empty_since is None:
+                self._empty_since = time.monotonic()   # 最后一个连接走了，开始计时
+
+    def idle_seconds(self) -> Optional[float]:
+        """没有任何浏览器连接的持续秒数；有连接时返回 None（自动退出保险用）
+
+        注意：connect/disconnect/本方法都只在事件循环线程里执行，
+        直接读浮点字段是安全的——这里绝不能用 asyncio.Lock 的同步 with。
+        """
+        if self._connections:
+            return None
+        if self._empty_since is None:
+            self._empty_since = time.monotonic()
+        return time.monotonic() - self._empty_since
 
     async def broadcast_quote(self, quote: MarketQuote) -> None:
         payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict()}

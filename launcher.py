@@ -100,7 +100,9 @@ def main() -> None:
 
     threading.Thread(target=open_browser, daemon=True).start()
     print(f"ZA量化 v{version()} 启动中：{url} （关闭本窗口即退出）")
-    app = create_app(config)
+    # 打包模式（exe）启用保险丝：无浏览器连接 10 分钟自动退出，释放端口与内存
+    auto_exit = 600 if getattr(sys, "frozen", False) else None
+    app = create_app(config, auto_exit_idle_seconds=auto_exit)
     uvicorn.run(app, host=host, port=port, log_level=config.server.log_level)
 
 

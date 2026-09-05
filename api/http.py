@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 
 import asyncio
+import logging
+import os
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +57,7 @@ class Services:
     """网关运行时服务集合；HTTP / WS 只通过它访问行情核心。"""
 
     config: Config
+    auto_exit_idle_seconds: Optional[int] = None   # 无浏览器连接自动退出阈值（None=不启用）
     client: TqClient
     instruments: InstrumentManager
     subscriptions: SubscriptionManager
@@ -90,8 +93,9 @@ def build_services(config: Config) -> Services:
     return services
 
 
-def create_app(config: Config) -> FastAPI:
+def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> FastAPI:
     services = build_services(config)
+    services.auto_exit_idle_seconds = auto_exit_idle_seconds
     app = FastAPI(title="国内期货行情网关", version="0.2.0", lifespan=_lifespan(services))
     app.state.services = services
 
@@ -276,12 +280,27 @@ def _lifespan(services: Services):
         services.loop = asyncio.get_running_loop()
         broadcast_task = asyncio.create_task(_broadcast_loop(services))
         services.client.start()
+        idle_watchdog = None
+        threshold = services.auto_exit_idle_seconds
+        if threshold:
+            async def _idle_watchdog():
+                # 保险丝：没有任何浏览器连接超过阈值 → 自动退出，释放端口与内存
+                while True:
+                    await asyncio.sleep(10)
+                    idle = services.connections.idle_seconds()
+                    if idle is not None and idle >= threshold:
+                        logging.getLogger("gateway").info(
+                            "无浏览器连接超过 %s 秒，自动退出以释放端口与内存", threshold)
+                        os._exit(0)
+            idle_watchdog = asyncio.create_task(_idle_watchdog())
         try:
             yield
         finally:
             broadcast_task.cancel()
             with suppress(asyncio.CancelledError):
                 await broadcast_task
+            if idle_watchdog is not None:
+                idle_watchdog.cancel()
             services.client.close()
 
     return lifespan
