@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ZA量化 · 手机版 UI 设计稿 V1.1.1</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #07090d; color: #e8edf2;
+    font-family: "PingFang SC", "Microsoft YaHei UI", sans-serif;
+    padding: 40px 30px 60px;
+  }
+  .board-title { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  .board-sub { color: #8b96a3; font-size: 13px; margin-bottom: 18px; }
+  .spec { display: flex; gap: 26px; margin-bottom: 34px; flex-wrap: wrap; }
+  .spec .item { font-size: 12px; color: #8b96a3; }
+  .spec .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+  .row { display: flex; gap: 44px; flex-wrap: wrap; }
+  .phone-wrap { width: 396px; }
+  .phone-label { font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+  .phone-note { font-size: 11px; color: #8b96a3; margin-bottom: 10px; line-height: 1.6; }
+  .phone {
+    width: 390px; height: 844px; border: 3px solid #39424e; border-radius: 47px;
+    background: #0e1116; overflow: hidden; position: relative;
+    display: flex; flex-direction: column;
+  }
+  .statusbar { height: 47px; display: flex; align-items: flex-end; justify-content: space-between;
+               padding: 0 26px 6px; font-size: 14px; font-weight: 600; flex: none; }
+  .statusbar .icons { font-size: 11px; letter-spacing: 2px; color: #cfd6de; }
+  .safe-bottom { height: 26px; flex: none; }
+  .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .up { color: #ef5350; } .down { color: #26a69a; } .amber { color: #e0a93c; }
+  .cyan { color: #4db6e6; } .muted { color: #8b96a3; }
+  .num { font-family: "SF Mono", Consolas, monospace; }
+
+  /* 顶部导航 */
+  .nav { height: 48px; display: flex; align-items: center; padding: 0 16px; gap: 10px; flex: none;
+         border-bottom: 1px solid #1c232c; }
+  .nav .title { font-size: 17px; font-weight: 700; }
+  .nav .sub { font-size: 11px; color: #8b96a3; }
+  .nav .right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #26a69a; display: inline-block; }
+
+  /* 底部 Tab */
+  .tabbar { height: 56px; border-top: 1px solid #1c232c; display: flex; flex: none;
+            background: #12161d; }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+         gap: 3px; font-size: 10px; color: #8b96a3; }
+  .tab .ic { font-size: 19px; line-height: 1; }
+  .tab.active { color: #4db6e6; }
+
+  /* 行情主页 */
+  .idx-strip { display: flex; gap: 8px; padding: 10px 12px; overflow: hidden; flex: none;
+               border-bottom: 1px solid #1c232c; }
+  .idx-card { min-width: 118px; background: #1a2029; border-radius: 10px; padding: 8px 10px; }
+  .idx-card .n { font-size: 10px; color: #8b96a3; }
+  .idx-card .v { font-size: 14px; font-weight: 700; margin-top: 2px; }
+  .idx-card .c { font-size: 10px; margin-top: 1px; }
+  .sec { display: flex; align-items: center; padding: 12px 16px 6px; font-size: 13px; font-weight: 700; flex: none; }
+  .sec .r { margin-left: auto; font-size: 11px; color: #4db6e6; font-weight: 400; }
+  .watch-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid #161c24; }
+  .watch-row .l { flex: 1; }
+  .watch-row .l .nm { font-size: 15px; font-weight: 600; }
+  .watch-row .l .cd { font-size: 10px; color: #8b96a3; margin-top: 2px; }
+  .watch-row .p { text-align: right; }
+  .watch-row .p .last { font-size: 16px; font-weight: 700; }
+  .watch-row .p .chg { font-size: 10px; margin-top: 2px; }
+  .fab { position: absolute; right: 20px; bottom: 84px; width: 48px; height: 48px; border-radius: 50%;
+         background: #275e52; display: flex; align-items: center; justify-content: center;
+         font-size: 22px; color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.5); }
+
+  /* K线页 */
+  .price-hero { padding: 10px 16px 4px; flex: none; }
+  .price-hero .big { font-size: 32px; font-weight: 800; }
+  .price-hero .chg { font-size: 13px; margin-top: 2px; }
+  .meta { display: flex; gap: 14px; padding: 6px 16px 8px; font-size: 10px; color: #8b96a3; flex-wrap: wrap; flex: none; }
+  .meta b { color: #cfd6de; font-weight: 600; }
+  canvas { display: block; }
+  .ptabs { display: flex; gap: 4px; padding: 6px 12px; flex: none; border-top: 1px solid #1c232c; }
+  .ptabs button { flex: 1; background: transparent; border: none; color: #8b96a3; font-size: 11px;
+                  padding: 6px 0; border-radius: 6px; }
+  .ptabs button.active { background: #275e52; color: #fff; }
+  .depth-strip { display: flex; border-top: 1px solid #1c232c; flex: none; }
+  .depth-strip .cell { flex: 1; text-align: center; padding: 7px 0; font-size: 11px; }
+  .depth-strip .cell .k { color: #8b96a3; font-size: 9px; }
+  .btn-decision { margin: 8px 12px; padding: 11px; text-align: center; border: 1px solid #e0a93c;
+                  color: #e0a93c; border-radius: 10px; font-size: 14px; font-weight: 700; flex: none; }
+
+  /* 盘口页 */
+  .depth-page { flex: 1; }
+  .depth-row { display: flex; justify-content: space-between; padding: 12px 20px;
+               border-bottom: 1px solid #161c24; font-size: 15px; }
+  .depth-row .vol { color: #8b96a3; }
+  .depth-mid { text-align: center; padding: 16px 0; font-size: 26px; font-weight: 800;
+               border-top: 1px solid #1c232c; border-bottom: 1px solid #1c232c; }
+  .page-title { font-size: 22px; font-weight: 800; padding: 14px 20px 6px; }
+
+  /* 决策页 */
+  .dc-card { margin: 10px 14px; background: #1a2029; border-radius: 14px; padding: 16px; }
+  .dc-direction { display: flex; align-items: center; justify-content: space-between; }
+  .dc-direction .d { font-size: 30px; font-weight: 800; }
+  .dc-direction .s { font-size: 12px; color: #8b96a3; }
+  .bar { height: 8px; border-radius: 4px; overflow: hidden; display: flex; margin-top: 12px; background: #12161d; }
+  .bar .l { background: #ef5350; width: 71%; }
+  .bar .r { background: #26a69a; flex: 1; }
+  .dc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dc-grid .g { background: #12161d; border-radius: 10px; padding: 10px 12px; }
+  .dc-grid .g label { font-size: 10px; color: #8b96a3; display: block; }
+  .dc-grid .g .v { font-size: 15px; font-weight: 700; margin-top: 3px; }
+  .why { margin: 0 14px; background: #1a2029; border-radius: 14px; padding: 12px 14px; }
+  .why .t { font-size: 12px; color: #8b96a3; margin-bottom: 6px; }
+  .why li { list-style: none; font-size: 12px; padding: 5px 0 5px 10px; border-left: 2px solid #275e52; margin: 3px 0; }
+  .disclaimer { margin: 10px 14px; font-size: 10px; color: #8b96a3; text-align: center; }
+
+  /* 登录页 */
+  .login { flex: 1; display: flex; flex-direction: column; padding: 0 28px; }
+  .logo { margin: 46px auto 8px; width: 74px; height: 74px; position: relative; }
+  .logo .sq1 { position: absolute; inset: 6px; border: 3px solid #4db6e6; transform: rotate(0deg); opacity: .9; }
+  .logo .sq2 { position: absolute; inset: 14px; border: 3px solid #e0a93c; transform: rotate(45deg); opacity: .9; }
+  .login .brand { text-align: center; font-size: 22px; font-weight: 800; }
+  .login .hint { text-align: center; font-size: 12px; color: #8b96a3; margin: 6px 0 30px; }
+  .login input { background: #1a2029; border: 1px solid #2a313c; border-radius: 12px; color: #e8edf2;
+                 padding: 14px 16px; font-size: 15px; margin-bottom: 14px; outline: none; }
+  .login input:focus { border-color: #4db6e6; }
+  .login .primary { background: #275e52; border: none; color: #fff; border-radius: 12px;
+                    padding: 15px; font-size: 16px; font-weight: 700; }
+  .login .reg { text-align: center; font-size: 12px; color: #4db6e6; margin-top: 16px; }
+  .login .privacy { text-align: center; font-size: 10px; color: #8b96a3; margin-top: auto; margin-bottom: 10px; line-height: 1.7; }
+
+  /* 我的 */
+  .me-head { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
+  .me-head .avatar { width: 54px; height: 54px; border-radius: 50%; background: #275e52;
+                     display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; }
+  .me-head .nm { font-size: 17px; font-weight: 700; }
+  .me-head .ds { font-size: 11px; color: #8b96a3; margin-top: 3px; }
+  .me-group { background: #12161d; border-radius: 12px; margin: 8px 14px; overflow: hidden; }
+  .me-row { display: flex; align-items: center; padding: 14px 16px; font-size: 14px;
+            border-bottom: 1px solid #161c24; }
+  .me-row:last-child { border-bottom: none; }
+  .me-row .r { margin-left: auto; color: #8b96a3; font-size: 13px; }
+  .me-row .arrow { margin-left: 8px; color: #4a5560; }
+  .me-row.danger { color: #ef5350; }
+  .ver { text-align: center; font-size: 10px; color: #4a5560; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="board-title">ZA量化 · 手机版 UI 设计稿</div>
+<div class="board-sub">V1.1.1 · 双技术路线（C 直连版主线 / A+B 协程版）· 6 个核心页面 · 深色主题 · 390×844pt</div>
+<div class="spec">
+  <span class="item"><span class="sw" style="background:#ef5350"></span>上涨/做多 #EF5350</span>
+  <span class="item"><span class="sw" style="background:#26a69a"></span>下跌/做空 #26A69A</span>
+  <span class="item"><span class="sw" style="background:#e0a93c"></span>观望/警示 #E0A93C</span>
+  <span class="item"><span class="sw" style="background:#4db6e6"></span>主题色 #4DB6E6</span>
+  <span class="item"><span class="sw" style="background:#0e1116;border:1px solid #2a313c"></span>背景 #0E1116</span>
+  <span class="item">触控目标 ≥ 44pt · 安全区：顶 47pt / 底 34pt · 正文最小 11pt · 对比度 ≥ 4.5:1</span>
+</div>
+
+<div class="row">
+
+<div class="phone-wrap">
+  <div class="phone-label">⑤ 登录（首次启动）</div>
+  <div class="phone-note">天勤账户登录 · 凭据加密存储 · 与桌面版登录逻辑一致</div>
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="icons">●●●● ⌁ ▮</span></div>
+    <div class="content">
+      <div class="login">
+        <div class="logo"><div class="sq1"></div><div class="sq2"></div></div>
+        <div class="brand">ZA量化</div>
+        <div class="hint">连接天勤行情，需要免费天勤账户<br>还没有账号？<span class="cyan">立即注册 ›</span></div>
+        <input type="text" placeholder="天勤账号（手机号/邮箱）">
+        <input type="password" placeholder="密码">
+        <button class="primary">保存并连接</button>
+        <div class="reg">使用说明 · 常见问题</div>
+        <div class="privacy">凭据加密保存在本机安全区域（iOS Keychain / Android Keystore）<br>
+        不会上传到任何第三方 · V1.1.1 · C 直连版</div>
+      </div>
+    </div>
+    <div class="safe-bottom"></div>
+  </div>
+</div>
+
+
+
+<div class="phone-wrap">
+  <div class="phone-label">⑥ 我的 / 设置</div>
+  <div class="phone-note">账户状态 · 数据源路线标识 · 推送与刷新设置 · 免责声明</div>
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="icons">●●●● ⌁ ▮</span></div>
+    <div class="content">
+      <div class="me-head">
+        <div class="avatar">量</div>
+        <div><div class="nm">账户 189****36</div><div class="ds">● 已连接 · 数据源：C 直连版 · 天勤免费行情</div></div>
+      </div>
+      <div class="me-group">
+        <div class="me-row"><span>行情刷新频率</span><span class="r">实时推送 ›</span></div>
+        <div class="me-row"><span>后台自动断开</span><span class="r">10 分钟 ›</span></div>
+        <div class="me-row"><span>K线默认周期</span><span class="r">5 分钟 ›</span></div>
+      </div>
+      <div class="me-group">
+        <div class="me-row"><span>切换数据路线</span><span class="r">C 直连版 ›</span></div>
+        <div class="me-row"><span>自选列表同步</span><span class="r">已开启 ›</span></div>
+      </div>
+      <div class="me-group">
+        <div class="me-row"><span>使用说明与免责声明</span><span class="arrow">›</span></div>
+        <div class="me-row"><span>关于 ZA量化</span><span class="r num muted">V1.1.1</span></div>
+        <div class="me-row danger"><span>退出登录</span></div>
+      </div>
+      <div class="ver">ZA量化 V1.1.1 · 仅供参考，不构成投资建议</div>
+    </div>
+    <div class="tabbar">
+      <div class="tab"><span class="ic">📈</span>行情</div>
+      <div class="tab"><span class="ic">🕯</span>K线</div>
+      <div class="tab"><span class="ic">⚖</span>决策</div>
+      <div class="tab active"><span class="ic">👤</span>我的</div>
+    </div>
+    <div class="safe-bottom"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// 设计稿里的 K 线/副图用确定性伪随机数据绘制（仅示意，非真实数据）
+function drawCandles(id, seed, n) {
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = "#0e1116"; ctx.fillRect(0, 0, W, H);
+  let price = 3080, bars = [];
+  let s = seed;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280 - 0.5;
+  for (let i = 0; i < n; i++) { price += rnd() * 6; bars.push(price); }
+  const hi = Math.max(...bars), lo = Math.min(...bars);
+  const y = v => H - 14 - (v - lo) / (hi - lo) * (H - 28);
+  const bw = W / n;
+  // 网格
+  ctx.strokeStyle = "#161c24";
+  for (let g = 1; g < 4; g++) { ctx.beginPath(); ctx.moveTo(0, H/4*g); ctx.lineTo(W, H/4*g); ctx.stroke(); }
+  for (let i = 0; i < n; i++) {
+    const prev = i ? bars[i-1] : bars[0];
+    const up = bars[i] >= prev;
+    ctx.strokeStyle = ctx.fillStyle = up ? "#ef5350" : "#26a69a";
+    ctx.beginPath(); ctx.moveTo(bw*i + bw/2, y(bars[i]) - 6); ctx.lineTo(bw*i + bw/2, y(bars[i]) + 6); ctx.stroke();
+    ctx.fillRect(bw*i + 2, Math.min(y(bars[i]), y(prev)), bw - 4, Math.max(2, Math.abs(y(bars[i]) - y(prev))));
+  }
+  // MA 线
+  ctx.strokeStyle = "#e0a93c"; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const avg = bars.slice(Math.max(0, i-4), i+1).reduce((a,b)=>a+b,0) / Math.min(5, i+1);
+    i ? ctx.lineTo(bw*i + bw/2, y(avg)) : ctx.moveTo(bw/2, y(avg));
+  }
+  ctx.stroke(); ctx.lineWidth = 1;
+}
+function drawMacd(id, seed) {
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = "#0e1116"; ctx.fillRect(0, 0, W, H);
+  let s = seed, v = 0;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280 - 0.5;
+  const bw = W / 40;
+  for (let i = 0; i < 40; i++) {
+    v = v * 0.7 + rnd() * 4;
+    const h = Math.abs(v) * (H/2) * 0.45;
+    ctx.fillStyle = v >= 0 ? "#ef5350" : "#26a69a";
+    ctx.fillRect(bw*i + 1, H/2 - (v >= 0 ? h : 0), bw - 2, Math.max(1.5, h));
+  }
+  ctx.strokeStyle = "#e8edf2"; ctx.beginPath();
+  let m = 0;
+  for (let i = 0; i < 40; i++) { m += 0.6; i ? ctx.lineTo(bw*i, H/2 - m/2) : ctx.moveTo(0, H/2); }
+  ctx.stroke();
+  ctx.strokeStyle = "#e0a93c"; ctx.beginPath(); ctx.moveTo(0, H/2 - 4);
+  for (let i = 0; i < 40; i++) ctx.lineTo(bw*i, H/2 - 4 - Math.sin(i/5)*3);
+  ctx.stroke();
+}
+window.addEventListener("load", () => {
+  drawCandles("c-k", 20260905, 34);
+  drawMacd("c-m", 8888);
+});
+</script>
+</body>
+</html>
+
+</div>
+</body>
+</html>
