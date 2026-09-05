@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import Config
+from config import Config, save_credentials
 from market.cache import QuoteCache
 from market.evaluator import evaluate
 from market.model import Instrument
@@ -41,6 +41,11 @@ ROUTE_NAME = "A+B 协程版"  # 数据层路线标识：写入 status，打包�
 
 class SubscribeRequest(BaseModel):
     symbols: list[str]
+
+
+class AuthRequest(BaseModel):
+    account: str
+    password: str
 
 
 @dataclass
@@ -140,6 +145,26 @@ def create_app(config: Config) -> FastAPI:
                 "/ws/market",
             ],
         }
+
+    @router.get("/api/v1/auth")
+    def get_auth(services: Services = Depends(get_services)) -> dict:
+        """登录状态：只返回是否已配置与掩码账号，绝不返回密码。"""
+        configured = services.client.credentials_configured
+        account = services.client.account
+        return {
+            "configured": configured,
+            "account": mask_account(account) if configured and account else "",
+        }
+
+    @router.post("/api/v1/auth")
+    def set_auth(body: AuthRequest, services: Services = Depends(get_services)) -> dict:
+        """保存天勤凭据（本地凭据存储，git 忽略）并立即重新登录。"""
+        account = body.account.strip()
+        if not account or not body.password:
+            raise HTTPException(status_code=422, detail="账号与密码不能为空")
+        save_credentials(account, body.password)
+        services.client.set_credentials(account, body.password)
+        return {"ok": True, "account": mask_account(account), "route": ROUTE_NAME}
 
     @router.get("/api/v1/status")
     def status(services: Services = Depends(get_services)) -> dict:

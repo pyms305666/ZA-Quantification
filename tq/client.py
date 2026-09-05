@@ -147,6 +147,11 @@ class TqClient:
     def account(self) -> str:
         return self._account
 
+    @property
+    def credentials_configured(self) -> bool:
+        with self._lock:
+            return bool(self._account and self._password)
+
     def _set_connected(self, value: bool) -> None:
         with self._lock:
             self._connected = value
@@ -215,16 +220,34 @@ class TqClient:
                 self._reconnect_requested = True
                 self._status("检测到连接异常（命令持续超时），准备重连")
 
+    def set_credentials(self, account: str, password: str) -> None:
+        """运行中设置天勤凭据（登录界面保存后调用），并触发重新登录。
+
+        若事件循环线程尚未启动，凭据会在 start() 后的首次连接中使用。
+        """
+        with self._lock:
+            self._account = account.strip()
+            self._password = password
+            self._error = None
+        if self._thread is not None and self._thread.is_alive():
+            self._reconnect_requested = True
+            self._status("收到账户信息，正在重新登录")
+
     # ------------------------------------------------------------------ 主循环
 
     def _run(self) -> None:
-        try:
-            api = self._connect()
-        except Exception as error:
-            self._set_error(str(error))
-            self._status(f"天勤登录失败：{error}")
-            self._fail_pending_commands(TqClientError(f"天勤未连接：{error}"))
-            return
+        # 首次连接失败（如未配置凭据、网络未就绪）不退出线程：进入重试循环，
+        # 等待 set_credentials/环境恢复后自动连上。
+        api = None
+        while api is None and not self._stop.is_set():
+            try:
+                api = self._connect()
+            except Exception as error:
+                self._set_error(str(error))
+                self._status(f"天勤登录失败，5 秒后重试：{error}")
+                self._fail_pending_commands(TqClientError(f"天勤未连接：{error}"))
+                if self._stop.wait(5.0):
+                    return
         self._set_error(None)
         self._set_connected(True)
         with self._lock:

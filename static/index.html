@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ZA量化 · 行情与决策</title>
 <link rel="icon" href="/static/favicon.png">
-<link rel="stylesheet" href="/static/style.css?v=1.2.0-ab">
+<link rel="stylesheet" href="/static/style.css?v=1.2.2-ab">
 </head>
 <body>
 <div id="app">
   <!-- 顶部工具栏 -->
   <header id="toolbar">
-    <div class="brand">ZA量化 <span class="brand-sub">行情 · 决策 · v1.2.0-ab · A+B协程版</span></div>
+    <div class="brand">ZA量化 <span class="brand-sub">行情 · 决策 · v1.2.2-ab · A+B协程版</span></div>
     <div id="periods" class="periods">
       <button data-period="60">1分钟</button>
       <button data-period="300" class="active">5分钟</button>
@@ -21,6 +21,7 @@
       <button data-period="86400">日线</button>
     </div>
     <div id="conn-status" class="conn-status">连接中…</div>
+    <button id="account-btn" class="account-btn" title="设置天勤账户">账户未登录</button>
   </header>
 
   <!-- 报价头 -->
@@ -82,6 +83,21 @@
     </aside>
   </main>
 
+  <!-- 天勤账户登录弹窗：凭据只保存在本机（.tqsdk/credentials.json，已被 git 忽略） -->
+  <div id="auth-modal" class="modal hidden">
+    <div class="modal-box">
+      <h3>天勤账户登录</h3>
+      <p class="muted">免费注册：www.tqsdk.com · 凭据仅保存在本机，不会提交到代码仓库</p>
+      <input id="auth-account" type="text" placeholder="天勤账号（手机号/邮箱）" autocomplete="username">
+      <input id="auth-password" type="password" placeholder="密码" autocomplete="current-password">
+      <div id="auth-error" class="auth-error"></div>
+      <div class="modal-actions">
+        <button id="auth-cancel" class="ghost">取消</button>
+        <button id="auth-save" class="primary">保存并连接</button>
+      </div>
+    </div>
+  </div>
+
   <footer id="statusbar">
     <span id="st-data">数据源：天勤 TqSdk</span>
     <span id="st-ws">WebSocket：未连接</span>
@@ -91,6 +107,6 @@
 </div>
 
 <script src="/static/vendor/echarts.min.js"></script>
-<script src="/static/app.js?v=1.2.0-ab"></script>
+<script src="/static/app.js?v=1.2.2-ab"></script>
 </body>
 </html>
