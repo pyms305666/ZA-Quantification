@@ -34,3 +34,11 @@ electron/out/
 .idea/
 .obsidian/
 langs*.json
+
+# Android（mobile-app）构建产物与本机配置
+mobile-app/.gradle/
+mobile-app/.idea/
+mobile-app/app/build/
+mobile-app/local.properties
+mobile-app/app/src/main/python/__pycache__/
+mobile-app/app/src/main/python/**/__pycache__/

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>ZA量化</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- 登录覆盖层（未配置天勤凭据时显示） -->
+<div id="screen-login" class="login hidden">
+  <div class="logo"><div class="sq1"></div><div class="sq2"></div></div>
+  <div class="brand">ZA量化</div>
+  <div class="hint">连接天勤行情，需要免费天勤账户<br>还没有账号？<span class="cyan">立即注册 ›</span></div>
+  <input id="login-account" type="text" placeholder="天勤账号（手机号/邮箱）" autocomplete="username">
+  <input id="login-password" type="password" placeholder="密码" autocomplete="current-password">
+  <div id="login-error" class="auth-error"></div>
+  <button id="login-save" class="primary">保存并连接</button>
+  <div class="privacy">凭据加密保存在本机应用私有目录<br>不会上传到任何第三方 · V1.1.1 · C 直连版</div>
+</div>
+
+<!-- 主框架 -->
+<div id="app-main" class="hidden">
+  <div class="statusbar"><span id="sb-time">9:41</span><span class="icons" id="sb-state">● 待连接</span></div>
+
+  <!-- ① 行情主页 -->
+  <section id="screen-quotes" class="screen">
+    <div class="nav"><span class="title">ZA量化</span><span class="sub" id="q-route">C 直连版</span>
+      <span class="right"><span class="dot ok"></span><span style="font-size:17px" onclick="showScreen('me')">👤</span></span></div>
+    <div class="idx-strip">
+      <div class="idx-card"><div class="n">螺纹2610</div><div class="v num up" id="idx-rb">--</div><div class="c up" id="idx-rb-c">--</div></div>
+      <div class="idx-card"><div class="n">黄金2612</div><div class="v num down" id="idx-au">--</div><div class="c down" id="idx-au-c">--</div></div>
+      <div class="idx-card"><div class="n">豆粕2609</div><div class="v num" id="idx-m">--</div><div class="c" id="idx-m-c">--</div></div>
+    </div>
+    <div class="sec">自选 <span class="muted" style="font-weight:400;font-size:11px;margin-left:6px" id="q-count"></span></div>
+    <div id="watchlist"></div>
+    <div class="searchbar"><input id="search" placeholder="搜索合约：如 rb / 棕榈" inputmode="search"></div>
+    <div id="resultlist"></div>
+  </section>
+
+  <!-- ② K线 -->
+  <section id="screen-kline" class="screen hidden">
+    <div class="nav"><span class="back" onclick="showScreen('quotes')">‹</span>
+      <div><div class="title" id="k-name">--</div><div class="sub num" id="k-code">--</div></div>
+      <span class="right"><span id="k-star" class="muted" onclick="toggleWatch()">☆</span></span></div>
+    <div class="price-hero"><div class="big num" id="k-last">--</div><div class="chg num" id="k-chg">--</div></div>
+    <div class="meta">
+      <span>开 <b class="num" id="k-open">--</b></span><span>高 <b class="num" id="k-high">--</b></span>
+      <span>低 <b class="num" id="k-low">--</b></span><span>昨结 <b class="num" id="k-preclose">--</b></span>
+      <span>量 <b class="num" id="k-vol">--</b></span><span>持仓 <b class="num" id="k-oi">--</b></span>
+    </div>
+    <div id="k-chart" style="width:100%;height:250px"></div>
+    <div class="ptabs" id="ptabs">
+      <button data-p="60">1分</button><button data-p="300" class="active">5分</button>
+      <button data-p="900">15分</button><button data-p="1800">30分</button>
+      <button data-p="3600">60分</button><button data-p="86400">日线</button>
+    </div>
+    <div id="k-macd" style="width:100%;height:80px"></div>
+    <div class="depth-strip" onclick="showScreen('depth')">
+      <div class="cell"><div class="k">买一</div><div class="num down" id="ds-bid">--</div></div>
+      <div class="cell"><div class="k">最新</div><div class="num" id="ds-last">--</div></div>
+      <div class="cell"><div class="k">卖一</div><div class="num up" id="ds-ask">--</div></div>
+    </div>
+    <button class="btn-decision" id="btn-dc">⚖ 决策评估 <span id="dc-caret">›</span></button>
+    <div id="dc-quick" class="dc-quick hidden">
+      <div class="dcq-head"><span class="d" id="dc-dir">--</span><span class="s" id="dc-score">--</span></div>
+      <div class="dcq-bar"><div class="l"></div><div class="r"></div></div>
+      <div class="dcq-grid">
+        <div><label>入场参考</label><div class="v" id="dc-entry">--</div></div>
+        <div><label>止损 (1.5×ATR)</label><div class="v muted" id="dc-stop">--</div></div>
+        <div><label>目标一 (1.5R)</label><div class="v muted" id="dc-t1">--</div></div>
+        <div><label>目标二 (3R)</label><div class="v muted" id="dc-t2">--</div></div>
+      </div>
+      <div class="dcq-more" onclick="showScreen('decision')">查看完整评估（依据 · 手数 · 风险） ›</div>
+    </div>
+  </section>
+
+  <!-- ③ 五档盘口 -->
+  <section id="screen-depth" class="screen hidden">
+    <div class="nav"><span class="back" onclick="showScreen('kline')">‹</span><span class="title">五档盘口</span>
+      <span class="right muted" style="font-size:11px" id="d-code">--</span></div>
+    <div class="page-title" id="d-name">--</div>
+    <div id="depth-body"></div>
+  </section>
+
+  <!-- ④ 决策评估 -->
+  <section id="screen-decision" class="screen hidden">
+    <div class="nav"><span class="title">决策评估</span><span class="right muted" style="font-size:12px" onclick="loadDecision()">↻</span></div>
+    <div class="dc-card">
+      <div class="dc-direction"><span class="d" id="dd-dir">--</span><span class="s" id="dd-score">--</span></div>
+      <div class="bar"><div class="l" id="dd-bar-l"></div><div class="r"></div></div>
+      <div class="muted" style="font-size:10px;margin-top:6px">门槛：总分 ≥60 且多空分差 ≥15 才给方向</div>
+    </div>
+    <div class="dc-grid" style="margin:0 14px">
+      <div class="g"><label>入场参考</label><div class="v" id="dd-entry">--</div></div>
+      <div class="g"><label>止损 (1.5×ATR)</label><div class="v" id="dd-stop">--</div></div>
+      <div class="g"><label>目标一 (1.5R)</label><div class="v" id="dd-t1">--</div></div>
+      <div class="g"><label>目标二 (3R)</label><div class="v" id="dd-t2">--</div></div>
+      <div class="g"><label>建议手数</label><div class="v" id="dd-lots">--</div></div>
+      <div class="g"><label>单笔风险</label><div class="v" id="dd-risk">--</div></div>
+    </div>
+    <div class="why"><div class="t" id="dd-whycount">评估依据</div><ul id="dd-why"></ul></div>
+    <div class="disclaimer" id="dd-time">仅为技术分析评估建议，不构成投资建议</div>
+  </section>
+
+  <!-- ⑤ 我的 -->
+  <section id="screen-me" class="screen hidden">
+    <div class="me-head"><div class="avatar">量</div>
+      <div><div class="nm" id="me-account">--</div><div class="ds" id="me-ds">--</div></div></div>
+    <div class="me-group">
+      <div class="me-row"><span>行情刷新</span><span class="r">实时推送 ›</span></div>
+      <div class="me-row"><span>K线默认周期</span><span class="r" id="me-period">5 分钟 ›</span></div>
+    </div>
+    <div class="me-group">
+      <div class="me-row"><span>数据路线</span><span class="r" id="me-route">--</span></div>
+      <div class="me-row"><span>使用说明与免责声明</span><span class="arrow">›</span></div>
+      <div class="me-row"><span>关于 ZA量化</span><span class="r">V1.1.1</span></div>
+    </div>
+    <div class="me-group"><div class="me-row danger"><span>退出登录</span></div></div>
+    <div class="ver">仅供参考，不构成投资建议</div>
+  </section>
+
+  <div class="tabbar" id="tabbar">
+    <div class="tab" data-s="quotes"><span class="ic">📈</span>行情</div>
+    <div class="tab" data-s="kline"><span class="ic">🕯</span>K线</div>
+    <div class="tab" data-s="decision"><span class="ic">⚖</span>决策</div>
+    <div class="tab" data-s="me"><span class="ic">👤</span>我的</div>
+  </div>
+</div>
+
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
