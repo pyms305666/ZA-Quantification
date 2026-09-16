@@ -15,6 +15,9 @@ const state = {
   ws: null,
   chart: null,
   macdChart: null,
+  catalogReady: false,       // 后端合约目录是否就绪
+  instrumentsLoading: false, // 防止重复拉取全量合约目录
+  quotes: {},                // symbol -> quote 缓存：切屏/重建列表时回填价格，避免 -- 闪失
 };
 const UP = "#ef5350", DOWN = "#26a69a", AMBER = "#e0a93c", MUTED = "#8b96a3";
 const $ = (id) => document.getElementById(id);
@@ -45,30 +48,65 @@ function showScreen(name) {
 }
 
 /* ---------- 行情主页 ---------- */
-function renderWatchlist() {
-  const box = $("watchlist");
-  box.innerHTML = "";
-  $("q-count").textContent = state.watchlist.length;
-  for (const code of state.watchlist) {
-    const row = document.createElement("div");
-    row.className = "watch-row";
-    row.innerHTML = `<div class="l"><div class="nm">${code.split(".")[1]}</div>` +
-      `<div class="cd num">${code}</div></div><div class="p"><div class="last num" id="w-${code}">--</div>` +
-      `<div class="chg num" id="wc-${code}">--</div></div>`;
-    row.addEventListener("click", () => switchSymbol(code));
-    box.appendChild(row);
+/* 从自选里移除一个合约（长按/点✕）；刷新自选列表并更新订阅 */
+function removeWatch(symbol) {
+  const i = state.watchlist.indexOf(symbol);
+  if (i < 0) return;
+  state.watchlist.splice(i, 1);
+  localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
+  if (symbol === state.symbol) {
+    // 删的是当前查看的合约：切回第一个自选，否则留在空页
+    state.symbol = state.watchlist[0] || state.symbol;
+    $("k-name").textContent = state.symbol.split(".")[1];
+    $("k-code").textContent = state.symbol;
+    $("d-code").textContent = state.symbol;
+    $("d-name").textContent = state.symbol;
+    if (state.ws && state.ws.readyState === 1) {
+      state.ws.send(JSON.stringify({ action: "subscribe", symbols: state.watchlist.length ? state.watchlist : [state.symbol] }));
+    }
+  } else if (state.ws && state.ws.readyState === 1) {
+    // 删除非当前合约：取消订阅该合约，避免残留
+    state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: [symbol] }));
   }
+  renderWatchlist();
 }
 function renderSearch() {
   const box = $("resultlist");
   box.innerHTML = "";
-  for (const it of state.instruments.slice(0, 50)) {
+  state.searchPage = 0;          // 缺陷 D：滚动加载分页游标
+  state.searchPageSize = 50;
+  appendSearchPage();
+}
+
+/* 缺陷 D：分批 append（每次 50 条），滚到底部自动加载下一批。
+   此前 slice(0,50) 把 578 条期货截到 50，用户永远看不到后面的合约。 */
+function appendSearchPage() {
+  const box = $("resultlist");
+  if (state.searchPage == null) state.searchPage = 0;
+  const start = state.searchPage * state.searchPageSize;
+  if (start >= state.instruments.length) {
+    // 全部渲染完：去掉滚动监听，避免空加载
+    if (state._searchScroll) $("resultlist").removeEventListener("scroll", state._searchScroll);
+    return;
+  }
+  const slice = state.instruments.slice(start, start + state.searchPageSize);
+  for (const it of slice) {
     const row = document.createElement("div");
     row.className = "watch-row";
     row.innerHTML = `<div class="l"><div class="nm">${it.name || it.instrument_id}</div>` +
       `<div class="cd num">${it.symbol}</div></div><div class="p"><div class="last num muted">›</div></div>`;
     row.addEventListener("click", () => switchSymbol(it.symbol));
     box.appendChild(row);
+  }
+  state.searchPage += 1;
+  // 首次绑定滚动监听
+  if (!state._searchScroll) {
+    state._searchScroll = () => {
+      if (state.screen !== "quotes") return;
+      const el = $("resultlist");
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) appendSearchPage();
+    };
+    $("resultlist").addEventListener("scroll", state._searchScroll);
   }
 }
 
@@ -79,13 +117,17 @@ function initCharts() {
   state.macdChart = echarts.init($("k-macd"));
   state.chart.setOption({
     animation: false, backgroundColor: "transparent",
+    // 缺陷 G：progressive 降采样——超过阈值后 ECharts 分块渲染，避免一次性
+    // 为全部 K 线分配 tile 内存（手机 WebView 长会话后主图只剩坐标轴的根因）。
+    progressive: 200, progressiveThreshold: 500,
     grid: { left: 8, right: 56, top: 10, bottom: 10 },
     xAxis: { type: "category", data: [], axisLine: { lineStyle: { color: "#262e3a" } }, axisLabel: { show: false } },
     yAxis: { scale: true, position: "right", splitLine: { lineStyle: { color: "#161c24" } },
              axisLabel: { color: "#8b96a3", fontSize: 9 } },
     dataZoom: [{ type: "inside", xAxisIndex: 0 }],
     series: [
-      { type: "candlestick", data: [], itemStyle: { color: UP, color0: DOWN, borderColor: UP, borderColor0: DOWN } },
+      { type: "candlestick", data: [], itemStyle: { color: UP, color0: DOWN, borderColor: UP, borderColor0: DOWN },
+        progressive: 200, progressiveThreshold: 500 },
       { type: "line", data: [], symbol: "none", lineStyle: { width: 1, color: AMBER } },
     ],
   });
@@ -107,10 +149,14 @@ function renderKline() {
   const closes = k.map(b => b.close);
   const ma = (n) => closes.map((_, i) => i < n - 1 ? null :
     +(closes.slice(i - n + 1, i + 1).reduce((a, b) => a + b, 0) / n).toFixed(2));
+  // 缺陷 G：增量 setOption——只更新 series.data 与 xAxis.data，
+  // 不重建 grid/yAxis/legend 等静态配置，避免 ECharts 内部 tile 频繁分配/释放。
+  // 手机 WebView tile 内存上限远低于桌面，全量 setOption 每次都重新初始化
+  // 所有组件，长会话后主图只剩坐标轴（logcat: tile memory limits exceeded）。
   state.chart.setOption({
     xAxis: { data: dates },
     series: [{ data: ohlc }, { data: ma(20) }],
-  });
+  }, { lazyReplace: true });
   // MACD 副图
   const dif = [], dea = [], hist = [];
   let f = closes[0], sl = closes[0];
@@ -123,7 +169,7 @@ function renderKline() {
   state.macdChart.setOption({
     xAxis: { data: dates },
     series: [{ data: hist.map(v => ({ value: v, itemStyle: { color: v >= 0 ? UP : DOWN } })) }],
-  });
+  }, { lazyReplace: true });
 }
 function fmtTime(ms) {
   const d = new Date(ms);
@@ -137,6 +183,7 @@ function colorBy(v, ref) { return ref == null ? "" : (v >= ref ? "up" : "down");
 function renderQuote() {
   const q = state.quote;
   if (!q) return;
+  if (q.symbol) state.quotes[q.symbol] = q;   // 缓存，供自选列表切屏后回填
   $("k-last").textContent = fmt(q.last);
   $("k-last").className = "big num " + colorBy(q.last, q.pre_close);
   const chg = q.pre_close ? q.last - q.pre_close : null;
@@ -218,13 +265,25 @@ async function loadDecision() {
   }
 }
 async function loadInstruments(keyword = "") {
+  // 目录未就绪：不拉取、不报错，只显示下载中提示，等 loadStatus 发现就绪后再补拉。
+  if (!state.catalogReady) {
+    if (state.screen === "quotes")
+      $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">合约目录下载中，下载完成后自动显示搜索结果…</div></div></div>`;
+    return;
+  }
+  if (state.instrumentsLoading) return;  // 防止重复/并发拉取导致报错叠加
+  state.instrumentsLoading = true;
   try {
     const d = await api(`/api/v1/instruments${keyword ? "?keyword=" + encodeURIComponent(keyword) : ""}`);
     state.instruments = d.items || [];
     renderSearch();
   } catch (e) {
-    $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">加载中（${e.message}），5秒后重试</div></div></div>`;
-    setTimeout(() => { if (state.screen === "quotes") loadInstruments(keyword); }, 5000);
+    // 只显示一次，不重复堆积；不自动反复重试（避免 503 + abort 两个报错叠一起）
+    if (state.screen === "quotes")
+      $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">加载合约列表失败（${e.message}），可切换页面后重试</div></div></div>`;
+    console.log("instruments:", e.message);
+  } finally {
+    state.instrumentsLoading = false;
   }
 }
 async function loadStatus() {
@@ -235,6 +294,20 @@ async function loadStatus() {
     $("me-account").textContent = "账户 " + (st.account || "--");
     $("me-route").textContent = st.route || "--";
     $("q-route").textContent = st.route || "";
+    state.catalogReady = !!st.catalog_ready;
+    // 合约目录加载中提示（用户能感知"导入未完成"）
+    const tip = $("catalog-tip");
+    if (tip) {
+      if (st.catalog_loading) {
+        const prog = st.catalog_progress ? ` ${st.catalog_progress}` : "";
+        tip.classList.remove("hidden");
+        tip.textContent = `⏳ 正在下载合约目录${prog}，行情/自选已可用，完成后即可搜索全部合约…`;
+      } else if (st.catalog_ready) {
+        tip.classList.add("hidden");
+      }
+    }
+    // 目录一就绪，立刻补拉一次搜索列表
+    if (state.catalogReady && !state.instrumentsLoading) loadInstruments($("search").value.trim());
   } catch (e) { /* 忽略 */ }
 }
 
@@ -242,32 +315,109 @@ async function loadStatus() {
 function connectWS() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`);
   state.ws = ws;
-  ws.onopen = () => ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
+  ws.onopen = () => {
+    // 订阅全部自选合约（不只是当前查看的），这样自选列表每行都能实时更新价格
+    sendSubscribe();
+  };
   ws.onmessage = (event) => {
     let msg; try { msg = JSON.parse(event.data); } catch { return; }
-    if ((msg.type === "quote" || msg.type === "quote_snapshot") && msg.symbol === state.symbol) {
-      state.quote = msg.data; renderQuote();
+    if (msg.type === "quote" || msg.type === "quote_snapshot") {
+      // 端到端延迟埋点（P0-200ms）：服务端发送时刻 msg.ts → WebView 收到
+      if (msg.ts) {
+        const latMs = Math.max(0, Date.now() / 1000 - msg.ts) * 1000;
+        const st = (state.latency = state.latency || { count: 0, sum: 0, max: 0 });
+        st.count += 1; st.sum += latMs; st.max = Math.max(st.max, latMs);
+        if (st.count % 100 === 0) {
+          console.debug(`[延迟统计] n=${st.count} avg=${(st.sum / st.count).toFixed(0)}ms max=${st.max.toFixed(0)}ms`);
+        }
+      }
+      // 当前查看的合约更新主报价区；自选列表里所有合约都更新对应行
+      if (msg.symbol === state.symbol) { state.quote = msg.data; renderQuote(); }
+      updateWatchPrice(msg.symbol, msg.data);
+    } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
+      // 缺陷 A 前端：订阅失败（后端尚未连接就绪）——退避重试，不丢一次即放弃。
+      // 后端也会在 on_connected 时重放 pending，这里兜底防"hello 之后还没就绪"的窗口。
+      retrySubscribe();
     }
   };
   ws.onclose = () => setTimeout(() => { if (document.visibilityState !== "hidden") connectWS(); }, 3000);
+}
+
+/* 发送一次订阅全部自选（onopen / 重试 / 切换合约共用） */
+function sendSubscribe() {
+  if (!state.ws || state.ws.readyState !== 1) return;
+  const all = [...new Set([state.symbol, ...state.watchlist])];
+  if (all.length) state.ws.send(JSON.stringify({ action: "subscribe", symbols: all }));
+}
+
+/* 退避重试订阅：首次 1s，之后 2s/4s，封顶 5s，最多 6 次（~20s 窗口） */
+function retrySubscribe() {
+  clearTimeout(state._retryTimer);
+  state._retryCount = (state._retryCount || 0) + 1;
+  if (state._retryCount > 6) { state._retryCount = 0; return; }
+  const delay = Math.min(5000, 1000 * Math.pow(2, state._retryCount - 1));
+  state._retryTimer = setTimeout(() => {
+    state._retryCount = 0;
+    sendSubscribe();
+  }, delay);
+}
+
+/* 更新自选列表里某一行的价格（即使不是当前查看的合约） */
+function updateWatchPrice(symbol, quote) {
+  if (quote && quote.last != null) state.quotes[symbol] = quote;   // 缓存
+  const lastEl = $("w-" + symbol), chgEl = $("wc-" + symbol);
+  if (lastEl) lastEl.textContent = fmt(quote.last);
+  if (chgEl) {
+    if (quote.pre_close) {
+      const c = quote.last - quote.pre_close;
+      chgEl.textContent = (c >= 0 ? "+" : "") + c.toFixed(2);
+      chgEl.className = "chg num " + colorBy(quote.last, quote.pre_close);
+    } else chgEl.textContent = "--";
+  }
+}
+
+/* 重建自选列表后，从内存缓存立刻回填每行价格（避免切屏后短暂显示 --） */
+function renderWatchlist() {
+  const box = $("watchlist");
+  box.innerHTML = "";
+  $("q-count").textContent = state.watchlist.length;
+  for (const code of state.watchlist) {
+    const row = document.createElement("div");
+    row.className = "watch-row";
+    row.innerHTML = `<div class="l"><div class="nm">${code.split(".")[1]}</div>` +
+      `<div class="cd num">${code}</div></div><div class="p"><div class="last num" id="w-${code}">--</div>` +
+      `<div class="chg num" id="wc-${code}">--</div></div>` +
+      `<div class="del" data-sym="${code}" title="删除">✕</div>`;
+    row.addEventListener("click", () => switchSymbol(code));
+    box.appendChild(row);
+    // 从缓存回填价格（如有）
+    const cached = state.quotes[code];
+    if (cached) updateWatchPrice(code, cached);
+  }
+  // 删除按钮（绑定到整行的删除图标）
+  box.querySelectorAll(".del").forEach(el =>
+    el.addEventListener("click", (e) => { e.stopPropagation(); removeWatch(el.dataset.sym); }));
 }
 
 /* ---------- 合约切换 ---------- */
 function switchSymbol(symbol) {
   if (symbol === state.symbol) { showScreen("kline"); return; }
   state.symbol = symbol;
-  state.quote = null; state.decision = null; state.kline = [];
+  state.decision = null; state.kline = [];
   if (!state.watchlist.includes(symbol)) {
     state.watchlist.push(symbol);
     localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   }
+  // 有缓存价格就先回填，避免切换瞬间报价头闪 --（后续实时推送会覆盖）
+  state.quote = state.quotes[symbol] || null;
+  if (state.quote) renderQuote();
   $("k-name").textContent = symbol.split(".")[1];
   $("k-code").textContent = symbol;
   $("d-code").textContent = symbol;
   $("d-name").textContent = symbol;
   showScreen("kline");
-  if (state.ws && state.ws.readyState === 1)
-    state.ws.send(JSON.stringify({ action: "subscribe", symbols: [symbol] }));
+  // 切换合约时重新订阅当前+全部自选，保证价格持续更新
+  sendSubscribe();
   loadKline(); loadDecision();
 }
 
@@ -283,23 +433,52 @@ function toggleWatch() {
 async function checkAuth() {
   try {
     const auth = await api("/api/v1/auth", 8000);
-    if (!auth.configured) { $("screen-login").classList.remove("hidden"); return false; }
+    if (!auth.configured) {
+      $("screen-login").classList.remove("hidden");
+      $("login-error").textContent = "";
+      return false;
+    }
     $("me-account").textContent = "账户 " + auth.account;
+    $("screen-login").classList.add("hidden");
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    // 后端未就绪时也显示登录层，避免用户"卡在没反应"的主界面
+    $("screen-login").classList.remove("hidden");
+    $("login-error").textContent = "后端连接中，" + e.message;
+    return false;
+  }
 }
 async function saveLogin() {
   const account = $("login-account").value.trim(), password = $("login-password").value;
   if (!account || !password) { $("login-error").textContent = "账号与密码不能为空"; return; }
+  $("login-save").disabled = true;
+  $("login-error").textContent = "正在登录…";
   try {
     const r = await fetch("/api/v1/auth", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ account, password }) });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    $("login-error").textContent = "";
     $("screen-login").classList.add("hidden");
-    loadStatus(); loadKline(); loadDecision();
-  } catch (e) { $("login-error").textContent = e.message; }
+    $("me-account").textContent = "账户 " + (body.account || "--");
+    $("login-account").value = ""; $("login-password").value = "";
+    // 登录成功：重新加载行情，让连接用新凭据建立
+    loadStatus(); loadKline(); loadDecision(); loadInstruments(); connectWS();
+    setTimeout(loadStatus, 2000);   // 留出重连建立连接的时间再刷新一次状态
+  } catch (e) {
+    $("login-error").textContent = e.message;
+  } finally {
+    $("login-save").disabled = false;
+  }
+}
+async function logout() {
+  try {
+    await fetch("/api/v1/auth", { method: "DELETE" });
+  } catch (e) { /* 忽略 */ }
+  $("screen-login").classList.remove("hidden");
+  $("login-error").textContent = "已退出登录";
+  loadStatus();
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -323,6 +502,9 @@ $("search").addEventListener("input", () => {
 });
 $("login-save").addEventListener("click", saveLogin);
 $("login-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
+$("logout").addEventListener("click", logout);
+document.querySelector("#screen-login .hint .cyan").addEventListener("click",
+  () => window.open("https://www.tqsdk.com", "_blank"));
 window.addEventListener("resize", () => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); });
 
 /* ---------- 启动 ---------- */
@@ -332,8 +514,9 @@ window.addEventListener("resize", () => { state.chart && state.chart.resize(); s
   initCharts();
   renderWatchlist();
   showScreen("quotes");
-  const configured = await checkAuth();
-  // 始终显示主界面（手机端天勤凭据本地保存，无需强制登录弹窗）
+  // 未配置凭据时 checkAuth 会弹出登录层并盖在 app-main 之上；
+  // 无论是否配置都显示主界面骨架，让状态条/路由信息可见（登录层保留在未配置时覆盖）。
+  await checkAuth();
   document.getElementById("app-main").classList.remove("hidden");
   loadStatus(); loadInstruments(); loadKline(); loadDecision(); connectWS();
   setInterval(loadStatus, 15000);

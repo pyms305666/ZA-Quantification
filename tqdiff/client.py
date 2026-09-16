@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import re
-import threading
 import threading
 import time
 from concurrent.futures import Future
@@ -32,9 +33,21 @@ EXCHANGE_INSTRUMENT_CASE = {
     "CZCE": "upper", "CFFEX": "upper",
 }
 
+logger = logging.getLogger("gateway.tqdiff")
+# K 线结构化诊断开关（P0-HISTORY_EMPTY 定位）：启动前设置 TQ_GATEWAY_DEBUG=1 开启
+KLINE_DEBUG = os.getenv("TQ_GATEWAY_DEBUG", "") == "1"
+
 
 class TqClientError(RuntimeError):
     """连接或命令执行失败（与旧 TqClient 对外一致的错误类型）。"""
+
+
+class SymbolNotFoundError(TqClientError):
+    """合约目录已就绪，但查不到该合约。
+
+    与"目录未就绪"（普通 TqClientError）区分开：订阅层据此决定
+    严格拒绝（查无此合约）还是降级放行（目录还没下载完）。
+    """
 
 
 def _candidates(symbol: str) -> list[str]:
@@ -68,6 +81,8 @@ class DiffClient:
         self._last_status = ""
         self._on_quote_change: Optional[Callable[[Any], None]] = None
         self._on_status: Optional[Callable[[str], None]] = None
+        self._on_connected: Optional[Callable[[], None]] = None
+        self._catalog_progress: Optional[str] = None   # 合约目录下载进度（如 "12MB/256MB"）
         # 事件循环与连接
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ws: Any = None
@@ -90,9 +105,11 @@ class DiffClient:
         self,
         on_quote_change: Optional[Callable[[Any], None]] = None,
         on_status: Optional[Callable[[str], None]] = None,
+        on_connected: Optional[Callable[[], None]] = None,
     ) -> None:
         self._on_quote_change = on_quote_change
         self._on_status = on_status
+        self._on_connected = on_connected
 
     @property
     def connected(self) -> bool:
@@ -122,6 +139,12 @@ class DiffClient:
         """合约目录是否已就绪（供接口区分"下载中"与"合约不存在"）。"""
         return self._file_loaded.is_set()
 
+    @property
+    def catalog_progress(self) -> Optional[str]:
+        """合约目录下载进度文本（如 "12MB/256MB"）；未下载/就绪时可为 None。"""
+        with self._lock:
+            return self._catalog_progress
+
     def _set_connected(self, value: bool) -> None:
         with self._lock:
             self._connected = value
@@ -137,6 +160,11 @@ class DiffClient:
                 self._on_status(value)
             except Exception:
                 pass   # 状态回调绝不允许拖垮行情线程
+
+    def _set_catalog_progress(self, value: str) -> None:
+        """记录合约目录下载进度（线程安全）。"""
+        with self._lock:
+            self._catalog_progress = value
 
     # ------------------------------------------------------------ 线程安全接口
 
@@ -240,6 +268,12 @@ class DiffClient:
             self._status("行情服务器已连接")
             self._ensure_symbol_file_task()
             await self._send({"aid": "peek_message"})
+            # 缺陷 F（桌面/手机同病）：服务器断开即丢弃本端全部订阅与图表状态，
+            # 重连后若不重放，会出现"连接恢复但行情推送冻结"（K 线拉取正常、
+            # 缓存报价停在断网前旧值）。这里在每次连接建立后按订阅表/图表缓冲重放。
+            await self._resend_subscribe()
+            await self._resend_charts()
+            self._notify_connected()
             async for raw in ws:
                 if self._stop.is_set():
                     return
@@ -263,32 +297,72 @@ class DiffClient:
         self._file_task = self._loop.create_task(self._load_symbol_file())
 
     async def _load_symbol_file(self) -> None:
-        while not self._stop.is_set():
-            cached = await self._loop.run_in_executor(
-                None, diff_auth.load_cached_symbol_file)
-            if cached is not None:
-                with self._data_lock:
-                    self._symbol_file = cached
-                self._file_loaded.set()
-                self._status(f"合约目录就绪（缓存，{len(cached)} 个合约）")
-                return
+        """后台加载合约目录：缓存优先；无缓存先用内置表秒用，再后台下载完整目录替换。
+
+        只影响"搜索合约"功能；下载/解析过程中分批置位 _file_loaded，
+        让"解析进一批即可搜索"（增量就绪），而不是等全部 24 万条下载完。
+
+        兜底策略（本阶段重点）：
+        - 磁盘索引/旧 JSON 缓存（7 天）存在 → 直接用；
+        - 无缓存 → 先用内置主流合约表（约 260 个）让搜索/自选立即可用，
+          同时后台下载完整目录，下载成功用完整表替换、下载失败保留内置表；
+        - 内置表彻底绕开"服务器限速 + 下载失败从 0 重下"的痛点。
+        """
+        # 1) 磁盘缓存优先（索引 pickle / 旧 JSON）
+        cached = await self._loop.run_in_executor(
+            None, diff_auth.load_cached_symbol_file)
+        if cached is not None:
+            with self._data_lock:
+                self._symbol_file = cached
+            self._file_loaded.set()
+            self._status(f"合约目录就绪（缓存，{len(cached)} 个合约）")
+            return
+
+        # 2) 无缓存：先用内置表兜底（秒用），再后台下载完整目录
+        builtin = await self._loop.run_in_executor(None, diff_auth.load_builtin_catalog)
+        if builtin:
+            with self._data_lock:
+                self._symbol_file = builtin
+            self._file_loaded.set()
+            self._set_catalog_progress(f"内置 {len(builtin)} 个合约，完整目录后台下载中")
+            self._status(f"合约目录：内置 {len(builtin)} 个常见合约，完整目录后台下载中")
+
+        # 3) 后台下载完整目录（失败有限重试，保留内置表兜底）
+        retries = 0
+        while not self._stop.is_set() and retries < 5:
             def _download():
                 return diff_auth.download_symbol_file(
                     self._token,
-                    progress=lambda done, total: self._status(
-                        f"下载合约目录 {done // 1024 // 1024}MB"
+                    progress=lambda done, total: self._set_catalog_progress(
+                        f"下载中 {done // 1024 // 1024}MB"
                         + (f"/{total // 1024 // 1024}MB" if total else "")),
+                    on_index_progress=self._on_index_progress,
                 )
             try:
                 symbols = await self._loop.run_in_executor(None, _download)
                 with self._data_lock:
                     self._symbol_file = symbols
                 self._file_loaded.set()
+                self._set_catalog_progress(None)   # 就绪后清除进度
                 self._status(f"合约目录就绪（{len(symbols)} 个合约）")
                 return
             except Exception as error:
-                self._status(f"合约目录下载失败，10 秒后重试：{error}")
-                await asyncio.sleep(10.0)
+                retries += 1
+                if builtin:
+                    self._status(f"完整目录下载失败（{retries}/5）：{error}，继续使用内置目录")
+                    if retries >= 5:
+                        self._set_catalog_progress(None)   # 放弃：不再显示下载进度
+                        return
+                else:
+                    self._status(f"合约目录下载失败，30 秒后重试：{error}")
+                await asyncio.sleep(30.0)
+
+    def _on_index_progress(self, count: int) -> None:
+        """解析进度回调（executor 线程内）：分批置位目录就绪，让搜索尽早可用。"""
+        self._set_catalog_progress(f"解析 {count} 条")
+        # 解析到一定条数即视为目录可用（避免等全部 24 万条）
+        if count >= 1000:
+            self._file_loaded.set()
 
     async def _wait_file(self, timeout: float) -> bool:
         """等待合约目录就绪（K 线/订阅不依赖它；目录查询依赖）。
@@ -355,9 +429,17 @@ class DiffClient:
                     if index == "@":
                         continue
                     try:
-                        buffer["rows"][int(index)] = row
+                        row_id = int(index)
                     except (TypeError, ValueError):
                         continue
+                    existing = buffer["rows"].get(row_id)
+                    if isinstance(existing, dict) and isinstance(row, dict):
+                        # DIFF 增量只送"变化的字段"（与 quotes 的 update 同语义）：必须合并。
+                        # 整体替换会把正在形成的 K 线冲掉部分字段（盘中增量常只有 close/volume），
+                        # 该根 K 线因缺 open/low 解析失败从图上消失，直到重启重新拉全量才恢复。
+                        existing.update(row)
+                    else:
+                        buffer["rows"][row_id] = row
                 anchor = data.get("@")
             else:
                 anchor = None
@@ -425,18 +507,50 @@ class DiffClient:
         if ins_list:
             await self._send(pack)
 
+    async def _resend_charts(self) -> None:
+        """重连后重放所有 set_chart：服务器断开即丢弃图表状态，不重放则 K 线停止刷新。
+
+        缺陷 F 配套：仅 subscribe_quote 重放不够——set_chart 丢失后服务器不再推 K 线
+        增量，页面看起来"连着"但图不动。重发用与首次相同的 chart_id，服务器据此
+        恢复推送；last_id 清零让它从最新可见位置重新发全量。
+        """
+        with self._data_lock:
+            charts = [(key, buf) for key, buf in self._charts.items()]
+        for (symbol, dur_ns), buffer in charts:
+            chart_id = f"ZAQ_{abs(hash((symbol, dur_ns))) % 10**10}"
+            await self._send({
+                "aid": "set_chart", "chart_id": chart_id,
+                "ins_list": symbol, "duration": dur_ns,
+                "view_width": buffer.get("view_width", 400),
+            })
+
+    def _notify_connected(self) -> None:
+        """连接建立（含重连）后回调：供订阅管理器重放挂起的订阅（缺陷 A/F）。"""
+        if self._on_connected is not None:
+            try:
+                self._on_connected()
+            except Exception:
+                pass   # 回调绝不允许拖垮行情线程
+
+
     async def _subscribe(self, symbol: str) -> str:
-        have_file = await self._wait_file(5.0)
-        if have_file:
-            entry = self._file_entry(symbol)
-            if entry is None:
-                raise TqClientError(f"合约不存在或查询失败：{symbol}")
-            if entry.get("expired"):
+        # 订阅行情完全不依赖合约目录文件（只依赖规范代码）。
+        # 目录是否就绪不影响订阅：就绪则顺便校验过期/名称，未就绪直接用 _candidates 规范化订阅，
+        # 行情服务器会校验合约是否存在并推送行情——避免"目录下载中"阻塞订阅、拖慢价格出现。
+        have_file = self._file_loaded.is_set()
+        record = self._file_entry(symbol) if have_file else None
+        if have_file and record is not None:
+            if record.get("expired"):
                 raise TqClientError(f"合约已过期或不存在：{symbol}")
-        record = diff_auth.parse_instrument_record(symbol, entry)
-        if record is None:
-            raise TqClientError(f"合约不存在或查询失败：{symbol}")
-        canonical = record["symbol"]
+        if record is not None:
+            # _symbol_file 存的是精简 record，直接取规范代码
+            canonical = record["symbol"]
+        else:
+            # 目录未就绪或目录里没有该条目：用 _candidates 规范化代码直接订阅
+            candidates = _candidates(symbol)
+            if not candidates or not candidates[0]:
+                raise TqClientError(f"合约不存在或查询失败：{symbol}")
+            canonical = candidates[0]
         event = self._quote_events.get(canonical)
         if event is None:
             event = asyncio.Event()
@@ -467,23 +581,20 @@ class DiffClient:
     async def _get_instrument(self, symbol: str) -> dict:
         if not await self._wait_file(60.0):
             raise TqClientError("合约目录后台下载中，请稍候重试")
-        entry = self._file_entry(symbol)
-        if entry is None:
-            raise TqClientError(f"合约不存在或查询失败：{symbol}")
-        record = diff_auth.parse_instrument_record(symbol, entry)
+        record = self._file_entry(symbol)
         if record is None:
-            raise TqClientError(f"合约不存在或查询失败：{symbol}")
-        return record
+            raise SymbolNotFoundError(f"合约不存在或查询失败：{symbol}")
+        # _symbol_file 存的是精简 record，直接返回
+        return dict(record)
 
     async def _get_instruments_info(self, symbols: list[str]) -> dict:
         if not await self._wait_file(60.0):
             raise TqClientError("合约目录后台下载中，请稍候重试")
         output: dict[str, dict] = {}
         for symbol in symbols:
-            entry = self._file_entry(symbol)
-            record = diff_auth.parse_instrument_record(symbol, entry) if entry else None
+            record = self._file_entry(symbol)
             if record is not None:
-                output[symbol] = record
+                output[symbol] = dict(record)
         return output
 
     async def _query_instruments(self) -> list[str]:
@@ -492,10 +603,11 @@ class DiffClient:
         with self._data_lock:
             file_data = self._symbol_file
         symbols = []
-        for key, entry in file_data.items():
-            if not isinstance(entry, dict):
+        for key, record in file_data.items():
+            if not isinstance(record, dict):
                 continue
-            if entry.get("class") != "FUTURE" or entry.get("expired"):
+            # record.kind=='FUTURE'，且未过期，且为国内主力/主连，才列入
+            if record.get("kind") != "FUTURE" or record.get("expired"):
                 continue
             if key.upper().startswith("KQD."):
                 continue  # 外盘主连，国内评估器不需要
@@ -505,7 +617,13 @@ class DiffClient:
         return sorted(symbols)
 
     async def _get_kline(self, symbol: str, period: int, count: int) -> list[dict]:
-        # K 线不依赖合约目录文件：目录还在后台下载时也应可用
+        # K 线不依赖合约目录文件：目录还在后台下载时也应可用。
+        # 诊断（P0-HISTORY_EMPTY 定位）：TQ_GATEWAY_DEBUG=1 时输出请求ID/等待/行数/异常的结构化日志。
+        req_id = self._kline_seq = getattr(self, "_kline_seq", 0) + 1
+        t0 = time.monotonic()
+        if KLINE_DEBUG:
+            logger.info("[kline #%d] start symbol=%s period=%ds count=%d",
+                        req_id, symbol, period, count)
         canonical = symbol
         dur_ns = period * 1_000_000_000
         fetch_length = max(count, 400)
@@ -535,6 +653,8 @@ class DiffClient:
                 "duration": dur_ns,
                 "view_width": fetch_length,
             }
+            if KLINE_DEBUG:
+                logger.info("[kline #%d] set_chart pack=%s", req_id, pack)
             deadline = time.monotonic() + 20.0
             resend_at = 0.0
             while time.monotonic() < deadline:
@@ -548,7 +668,13 @@ class DiffClient:
                 if last_id >= 0:
                     break
             if last_id < 0:
+                if KLINE_DEBUG:
+                    logger.warning("[kline #%d] init timeout %.1fs（服务器始终未确认 chart）",
+                                   req_id, time.monotonic() - t0)
                 raise TqClientError(f"K线数据初始化失败：{symbol} {period}s")
+            if KLINE_DEBUG:
+                logger.info("[kline #%d] chart ready %.2fs last_id=%d",
+                            req_id, time.monotonic() - t0, last_id)
         with self._data_lock:
             buffer = self._charts[key]
             rows = dict(buffer["rows"])
@@ -566,10 +692,27 @@ class DiffClient:
                 need_from = max(0, last_id - fetch_length + 1)
                 missing = [i for i in range(need_from, last_id + 1) if i not in rows]
             if missing:
+                if KLINE_DEBUG:
+                    need_n = last_id - need_from + 1
+                    logger.warning("[kline #%d] incomplete %s %ds need=%d got=%d missing=%d elapsed=%.1fs",
+                                   req_id, symbol, period, need_n, need_n - len(missing),
+                                   len(missing), time.monotonic() - t0)
                 raise TqClientError(f"K线数据不完整：{symbol} {period}s（缺 {len(missing)} 根）")
         bars: list[dict] = []
         for index in range(need_from, last_id + 1):
             bar = diff_auth.parse_kline_row(rows.get(index))
             if bar is not None:
                 bars.append(bar)
+        if not bars:
+            # 服务器确认了 chart 却没有任何有效 K 线行：明确报“历史不可用”，
+            # 绝不允许上层用实时快照/模拟数据顶替历史 K 线（P0 约定）。
+            if KLINE_DEBUG:
+                logger.warning("[kline #%d] history unavailable %s %ds rows=%d elapsed=%.1fs",
+                               req_id, symbol, period, len(rows), time.monotonic() - t0)
+            raise TqClientError(
+                f"历史K线数据不可用：{symbol} {period}s（服务器未返回有效历史数据）")
+        if KLINE_DEBUG:
+            logger.info("[kline #%d] ok %s %ds bars=%d/%d elapsed=%.2fs",
+                        req_id, symbol, period, len(bars), last_id - need_from + 1,
+                        time.monotonic() - t0)
         return bars[-count:]

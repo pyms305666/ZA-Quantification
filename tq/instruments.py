@@ -13,7 +13,7 @@ import time
 from typing import Optional
 
 from market.model import EXCHANGES, Instrument
-from .client import TqClient, TqClientError
+from .client import SymbolNotFoundError, TqClient, TqClientError
 
 # 国内交易所合约代码大小写规范：上期所/大商所/能源/广期所小写，中金所/郑商所大写。
 EXCHANGE_INSTRUMENT_CASE: dict[str, str] = {
@@ -55,10 +55,14 @@ class InstrumentManager:
                 self._futures = symbols
             return list(self._futures)
 
-    def list(self, exchange: str = "", keyword: str = "", refresh: bool = False) -> list[dict]:
+    def list(self, exchange: str = "", keyword: str = "", refresh: bool = False,
+             limit: int = 0) -> list[dict]:
         """合约目录。exchange 为 ``SHFE`` 等交易所代码；keyword 匹配代码/名称。
 
-        先按代码本地预过滤，再对剩余合约批量查询信息（绝不逐合约单查）。
+        缺陷 E：有关键字时不再按代码预过滤——中文名（如"棕榈"）的合约代码
+        里不含该字，预过滤会把它提前丢弃，后置名称匹配永远收不到它。
+        改为：关键字搜索时全部进入批量查询，再用名称/代码做后置匹配。
+        limit>0 且无关键字时截断（首次目录未就绪时的启动保护）。
         """
         exchange = exchange.upper()
         code_keyword = keyword.lower()
@@ -66,9 +70,14 @@ class InstrumentManager:
         for symbol in self.futures(refresh=refresh):
             if exchange and not symbol.startswith(exchange + "."):
                 continue
-            if code_keyword and code_keyword not in symbol.lower():
+            # 缺陷 E：关键字存在时不按代码预过滤——中文名（如"棕榈"）的合约代码
+            # 里不含该字，会被提前丢弃，后置名称匹配永远收不到它。
+            # 仅在"无关键字 + limit"时按代码截断（启动保护）。
+            if not keyword and code_keyword and code_keyword not in symbol.lower():
                 continue
             candidates.append(symbol)
+            if limit and not keyword and len(candidates) >= limit:
+                break
         if not candidates:
             return []
         missing = [symbol for symbol in candidates if symbol not in self._info_cache]
@@ -116,10 +125,14 @@ class InstrumentManager:
                 self._failed_cache.pop(normalized, None)
         try:
             record = self._client.run_command("get_instrument", normalized, timeout=8.0)
-        except TqClientError:
+        except SymbolNotFoundError:
+            # 目录已就绪但查无此合约：get 返回 None 仅此一种含义，供订阅层严格拒绝
             with self._lock:
                 self._failed_cache[normalized] = time.monotonic()
             return None
+        except TqClientError:
+            # 目录未就绪等暂时性失败：向上抛，由订阅层决定降级
+            raise
         item = Instrument(
             symbol=record["symbol"],
             exchange=record["exchange"],

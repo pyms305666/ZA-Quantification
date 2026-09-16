@@ -1,0 +1,54 @@
+# ZA量化 手机版（Android APK · Chaquopy 内嵌 Python）
+
+> 架构：Chaquopy 内嵌 Python 后端（`app/src/main/python/`，与桌面端共用 market/tqdiff 逻辑），
+> WebView 加载同源前端 `http://127.0.0.1:8000/`。无云服务器、不依赖电脑。
+
+## 构建环境要求（已验证的组合）
+
+| 组件 | 版本 | 说明 |
+|---|---|---|
+| JDK | 17（Temurin 17.0.20 验证通过） | `JAVA_HOME` 指向它 |
+| Gradle | **8.9**（wrapper 已提交，`gradlew` 自动下载） | 本机也可用 `E:/tools/gradle-8.2` 直跑 |
+| Android Gradle Plugin | 8.2.2（`build.gradle` 里 force 钉死） | Chaquopy 16.1 只兼容 AGP 8.0~8.2 |
+| Chaquopy | 16.1.0 | `apply plugin: 'com.chaquo.python'` |
+| Android SDK | Platform 34 + Build-Tools 34.0.0 | `local.properties` 写 `sdk.dir=E:/android-sdk` |
+| target ABI | arm64-v8a、x86_64（`ndk.abiFilters`） | Chaquopy 必须显式声明 |
+
+## 构建
+
+```bash
+cd mobile-app
+# 首次：确认 local.properties（不进仓库）：
+#   sdk.dir=E:/android-sdk
+./gradlew --no-daemon assembleDebug          # 干净机器：wrapper 自动下载 Gradle 8.9
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+# 交付：复制为 dist/ZA量化-手机版-v1.1.1.apk 并记录 SHA-256
+```
+
+> 本机若无外网下载 Gradle 发行版，可直接用本地已装 Gradle：
+> `E:/tools/gradle-8.2/bin/gradle.bat --no-daemon assembleDebug`
+
+## 已知构建警告（已核实、可接受）
+
+1. **`Failed to compile to .pyc format: buildPython version 3.x is incompatible`**
+   —— buildPython（构建机 Python）与目标运行时（Chaquopy 内置 CPython 3.8）大版本不一致时，
+   Chaquopy 跳过 .pyc 预编译。**仅影响首次启动速度（运行时即时编译），不影响正确性。**
+   若要消除：安装与目标一致的 Python（3.8）并设 `python { buildPython "..." }`。
+2. **`org.gradle.util.VersionNumber has been deprecated`**
+   —— 栈指向 `apply plugin: 'com.chaquo.python'`，来自 **Chaquopy 16.1 插件内部**，
+   我方构建脚本无此用法（已用 `=` 赋值与单字符串 classpath）。随 Chaquopy 升级消失。
+3. **`android.overridePathCheck=true` 实验性开关**
+   —— 项目路径含中文，必须保留该开关，否则 AGP 路径检查直接报错。
+
+## 工程要点（改代码前先读）
+
+- `python { pip { install ... } }` 块**必须放在 `android.defaultConfig` 内部**
+  （Chaquopy 的 createDsl 把 python 扩展挂在 defaultConfig 上，放 `android{}` 里会报
+  "Could not find method python()"）。
+- 后端 Python 源码在 `app/src/main/python/`，与根目录桌面版是**两份拷贝**：
+  改 `tqdiff/`、`market/`、`services.py` 等核心逻辑时**两端要同步**，
+  并跑 `python tools/check_core_drift.py` 确认没有意外分叉。
+- App 私有可写目录通过 Java 系统属性 `za.filesdir` 传入后端
+  （`MainActivity.java` 设置，`config.py`/`backend_main.py` 读取），凭据与合约缓存都写在那里。
+- 合约目录采用 gzip 下载 + ijson 流式解析 + pickle 精简索引（`tqdiff/symbol_index.py`），
+  索引文件约 25MB，二次启动秒级加载；原始 .gz 约 8.3MB 也保留在私有目录。

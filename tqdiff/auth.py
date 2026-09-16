@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import pickle
 import time
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ AUTH_BASE = os.getenv("TQ_AUTH_URL", "https://auth.shinnytech.com")
 NS_URL = "https://api.shinnytech.com/ns"
 SYMBOL_FILE_URL = os.getenv("TQ_INS_URL", "https://openmd.shinnytech.com/t/md/symbols/latest.json")
 OAUTH_CLIENT = {"client_id": "shinny_tq", "client_secret": "be30b9f4-6862-488a-99ad-21bde0400081"}
-SYMBOL_CACHE_TTL = 24 * 3600.0  # 合约文件磁盘缓存有效期（秒）
+SYMBOL_CACHE_TTL = 7 * 24 * 3600.0  # 合约文件磁盘缓存有效期（秒）：7 天，避免每日重下 256MB；底层合约数据变更频率远低于此
 
 
 class DiffAuthError(RuntimeError):
@@ -34,6 +35,7 @@ def _headers(access_token: str) -> dict:
     return {
         "User-Agent": "ZAQuant-diff/1.0",
         "Accept": "application/json",
+        "Accept-Encoding": "gzip",   # 显式请求 gzip：334MB JSON 压缩后约 8~11MB，大幅降下载量
         "Authorization": f"Bearer {access_token}",
     }
 
@@ -84,56 +86,150 @@ def get_md_url(access_token: str) -> str:
 
 
 def _cache_path() -> Path:
-    return Path(os.getenv("TQ_GATEWAY_CACHE", ".tqsdk")) / "symbol_file.json"
+    """合约文件磁盘缓存路径（symbol_file.json）。
+
+    Android（Chaquopy）环境必须用 App 私有目录的绝对路径，否则相对路径会落到
+    只读的 assets 目录，导致缓存写不进去、每次启动都重新下载 ~20MB 合约文件。
+    TQ_GATEWAY_CACHE 覆盖优先；移动端回退到 TQ_MOBILE_FILES_DIR / za.filesdir。
+    """
+    override = os.getenv("TQ_GATEWAY_CACHE")
+    if override:
+        return Path(override) / "symbol_file.json"
+    mobile_dir = _mobile_files_dir()
+    if mobile_dir is not None:
+        return mobile_dir / ".tqsdk" / "symbol_file.json"
+    return Path(".tqsdk") / "symbol_file.json"
+
+
+def _mobile_files_dir() -> Path | None:
+    """Android（Chaquopy）私有可写目录；非移动端返回 None。"""
+    try:
+        from java import jclass  # type: ignore[import-not-found]  # 仅 Chaquopy 存在
+        value = jclass("java.lang.System").getProperty("za.filesdir")
+        if value:
+            return Path(value)
+    except Exception:
+        pass
+    env = os.getenv("TQ_MOBILE_FILES_DIR")
+    if env:
+        return Path(env)
+    return None
+
+
+def load_builtin_catalog() -> dict[str, Any]:
+    """内置兜底合约目录：服务器下载慢/失败时先用，搜索/自选立即可用。
+
+    返回 dict[symbol -> record]，与 load_cached_symbol_file 的索引结构一致。
+    内置表只覆盖国内主流品种的近期合约（约 260 个）；完整目录下载成功后会自动替换。
+    """
+    try:
+        from . import builtin_symbols
+        index = getattr(builtin_symbols, "BUILTIN_SYMBOLS", None)
+        if isinstance(index, dict):
+            return dict(index)
+    except Exception:
+        pass
+    return {}
 
 
 def load_cached_symbol_file(max_age: float = SYMBOL_CACHE_TTL) -> Optional[dict]:
-    """读取仍在有效期内的磁盘缓存；无有效缓存返回 None。"""
+    """读取仍在有效期内的磁盘索引（精简 record dict）；无有效缓存返回 None。
+
+    索引以 pickle 存储（见 symbol_index.save_index），反序列化快、内存友好，手机端秒级加载。
+    兼容旧版本落盘的整段 JSON（symbol_file.json）：读不到索引时回退 JSON 解析。
+    """
+    index_path = _index_path()
+    from . import symbol_index
+    index = symbol_index.load_index(index_path, max_age)
+    if index is not None:
+        return index
+    # 回退：旧 JSON 缓存（整段 entry dict）
     cache = _cache_path()
     if not cache.exists():
         return None
     try:
         payload = json.loads(cache.read_text(encoding="utf-8"))
-        if time.time() - payload.get("_downloaded_at", 0) < max_age:
-            payload.pop("_downloaded_at", None)
-            return payload
     except (OSError, ValueError):
-        pass
+        return None
+    if not isinstance(payload, dict) or not payload:
+        return None
+    if time.time() - payload.get("_downloaded_at", 0) < max_age:
+        payload.pop("_downloaded_at", None)
+        # 旧格式是完整 entry，抽成精简 record 便于使用
+        result = {}
+        for symbol, entry in payload.items():
+            rec = symbol_index.parse_record(symbol, entry)
+            if rec is not None:
+                result[symbol] = rec
+        # 一次性迁移：把旧 JSON 转换结果落盘为 pickle 索引，下次启动秒级加载
+        # （桌面端存在 256MB 旧 JSON 缓存，转换一次后不再重复整段解析）
+        try:
+            symbol_index.save_index(result, _index_path())
+        except OSError:
+            pass
+        return result
     return None
 
 
-def download_symbol_file(access_token: str,
-                         progress: Optional[Callable[[int, int], None]] = None) -> dict[str, Any]:
-    """流式拉取全量合约目录（约 10~20MB），先写临时文件再原子落盘。
+def _index_path() -> Path:
+    """精简索引 pickle 路径（与原始 JSON 缓存同目录，独立文件名）。"""
+    return _cache_path().with_name("symbol_index.pkl")
 
-    progress(received_bytes, total_bytes) 在每个数据块后回调（可为 None）。
+
+def _gz_path() -> Path:
+    """gzip 压缩后的原始合约文件落盘路径（下载目标，约 8~11MB）。"""
+    return _cache_path().with_name("symbol_file.json.gz")
+
+
+def download_symbol_file(access_token: str,
+                         progress: Optional[Callable[[int, int], None]] = None,
+                         on_index_progress: Optional[Callable[[int], None]] = None) -> dict[str, Any]:
+    """拉取合约目录（线上约 334MB JSON），gzip 压缩传输并落盘，再从 gzip 流式解析为精简索引。
+
+    为什么 gzip：
+    - 明文 JSON 334MB，服务器支持 gzip，压缩后约 8~11MB → 网络传输量降 ~30 倍；
+    - 落盘只写 .gz（约 11MB），不再把 334MB 明文写进手机闪存；
+    - 用 gzip.open + ijson 边解压边解析，一次遍历，避免"先写 334MB 再读再解析"的磁盘/内存峰值。
+
+    progress(received_bytes, total_bytes) 每下载一个数据块回调（received 为压缩后字节）；
+    on_index_progress(count) 每解析一批条数回调（用于让目录部分就绪/展示进度）。
     """
-    cache = _cache_path()
     try:
+        # stream=True + 显式 Accept-Encoding: gzip；decode_content=False 拿到压缩字节（不先解压）
         response = requests.get(SYMBOL_FILE_URL, headers=_headers(access_token),
-                                timeout=(15, 60), stream=True)
+                                timeout=(15, 120), stream=True)
     except requests.RequestException as error:
         raise DiffAuthError(f"合约服务下载失败：{error}") from error
     if response.status_code != 200:
         raise DiffAuthError(f"合约服务下载失败（HTTP {response.status_code}）")
+    gz_path = _gz_path()
+    gz_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = gz_path.with_suffix(".tmp")
     total = int(response.headers.get("content-length") or 0)
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cache.with_suffix(".tmp")
     received = 0
     try:
         with tmp.open("wb") as handle:
-            for chunk in response.iter_content(chunk_size=256 * 1024):
+            # 读原始字节流（压缩后），按块写 .tmp；received 为压缩后字节数
+            # 注意 urllib3 的 stream() 参数是 amt（不是 chunk_size）
+            for chunk in response.raw.stream(amt=256 * 1024, decode_content=False):
                 if not chunk:
                     continue
                 handle.write(chunk)
                 received += len(chunk)
                 if progress is not None:
                     progress(received, total)
-        symbols = json.loads(tmp.read_text(encoding="utf-8"))
-        payload = {"_downloaded_at": time.time(), **symbols}
-        cache.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    except (OSError, ValueError) as error:
-        raise DiffAuthError(f"合约文件解析失败：{error}") from error
+        tmp.replace(gz_path)   # 原子落盘 gz
+        # 再 gzip.open + ijson 流式解析（边解压边逐条，不一次性加载全量）
+        from . import symbol_index
+        def _idx_progress(count: int) -> None:
+            if on_index_progress is not None:
+                on_index_progress(count)
+        symbols = symbol_index.index_from_gzip_file(gz_path, progress=_idx_progress)
+        idx_path = _index_path()
+        symbol_index.save_index(symbols, idx_path)
+    except (OSError, ValueError, TypeError) as error:
+        # 捕获 TypeError：避免 stream() 等 API 用错时被当作"下载中"卡住
+        raise DiffAuthError(f"合约文件下载/解析失败：{error}") from error
     finally:
         try:
             tmp.unlink(missing_ok=True)

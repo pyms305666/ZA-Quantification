@@ -9,6 +9,6 @@
 from __future__ import annotations
 
 from tqdiff.client import DiffClient as TqClient
-from tqdiff.client import TqClientError
+from tqdiff.client import SymbolNotFoundError, TqClientError
 
-__all__ = ["TqClient", "TqClientError"]
+__all__ = ["TqClient", "TqClientError", "SymbolNotFoundError"]

@@ -433,9 +433,20 @@ function connectWS() {
     if (msg.type === "quote" || msg.type === "quote_snapshot") {
       if (msg.symbol !== state.symbol) return;
       state.quote = msg.data;
+      // 端到端延迟埋点（P0-200ms）：服务端发送时刻 msg.ts → 浏览器收到
+      let latencyText = "";
+      if (msg.ts) {
+        const latMs = Math.max(0, Date.now() / 1000 - msg.ts) * 1000;
+        const st = (state.latency = state.latency || { count: 0, sum: 0, max: 0 });
+        st.count += 1; st.sum += latMs; st.max = Math.max(st.max, latMs);
+        if (st.count % 100 === 0) {
+          console.debug(`[延迟统计] n=${st.count} avg=${(st.sum / st.count).toFixed(0)}ms max=${st.max.toFixed(0)}ms`);
+        }
+        latencyText = ` · 端到端 ${latMs.toFixed(0)}ms`;
+      }
       renderQuoteBar();
       renderDepth();
-      $("st-updated").textContent = `更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
+      $("st-updated").textContent = `更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}${latencyText}`;
     } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
       // 订阅失败（如连接预热期）：5 秒后自动重试
       setTimeout(() => {

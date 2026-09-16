@@ -1,5 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 缺陷 B：锁屏后 vivo 系统冻结进程，后端 HTTP 12s 无响应。
+         前台服务保活：让后端线程在通知栏挂一个低优先级常驻通知，
+         系统在锁屏/后台时对前台服务的冻结阈值远宽松于普通进程。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="ZA量化"
         android:usesCleartextTraffic="true"
@@ -11,5 +17,8 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service android:name=".BackendService"
+                 android:foregroundServiceType="dataSync"
+                 android:exported="false"/>
     </application>
 </manifest>

@@ -17,7 +17,8 @@ android {
         python {
             pip { install "uvicorn==0.30.6"; install "starlette==0.38.6"; install "anyio==4.4.0";
                   install "websockets==12.0"; install "requests==2.32.3"; install "certifi";
-                  install "h11==0.14.0"; install "sniffio"; install "idna"; install "click==8.1.7" }
+                  install "h11==0.14.0"; install "sniffio"; install "idna"; install "click==8.1.7";
+                  install "ijson==3.2.3" }
         }
     }
     buildTypes {

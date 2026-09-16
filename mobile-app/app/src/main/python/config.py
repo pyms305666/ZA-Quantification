@@ -2,8 +2,8 @@
 
 加载顺序（后者覆盖前者）：
   1. ``config.json``（可从 ``config.json.example`` 复制，路径可用环境变量 TQ_GATEWAY_CONFIG 指定）
-  2. 本地凭据存储 ``.tqsdk/credentials.json``（前端登录界面保存，"像 cookie 一样"自动复用；
-     该目录已被 .gitignore 排除，凭据不进仓库）
+  2. 本地凭据存储 ``.tqsdk/credentials.json``（前端登录界面保存，保存一次后自动复用；
+     该目录已被 .gitignore 排除，凭据不进仓库。注意：本机文件为明文，请保管好设备与目录权限）
   3. 环境变量 ``TQ_ACCOUNT`` / ``TQ_PASSWORD``（优先级最高）
 
 天勤账号（手机号 + 密码）在 https://www.tqsdk.com 注册，免费。
@@ -59,8 +59,37 @@ def _default_config_path() -> Path:
 
 
 def _credentials_path() -> Path:
-    """本地凭据存储路径（git 已忽略 .tqsdk/）。"""
-    return Path(os.environ.get("TQ_GATEWAY_CREDENTIALS", ".tqsdk/credentials.json"))
+    """本地凭据存储路径（git 已忽略 .tqsdk/）。
+
+    Android（Chaquopy）环境使用 App 私有目录的绝对路径，避免依赖当前工作目录
+    可能指向只读 assets 目录；桌面环境保持相对路径（或 TQ_GATEWAY_CREDENTIALS 覆盖）。
+    """
+    override = os.environ.get("TQ_GATEWAY_CREDENTIALS")
+    if override:
+        return Path(override).expanduser()
+    mobile_dir = _mobile_files_dir()
+    if mobile_dir is not None:
+        return mobile_dir / ".tqsdk" / "credentials.json"
+    return Path(".tqsdk/credentials.json")
+
+
+def _mobile_files_dir() -> Path | None:
+    """Android（Chaquopy）环境下返回 App 私有 files 目录；否则返回 None。
+
+    优先读取 Java 系统属性 za.filesdir（由 MainActivity 写入，指向可写目录），
+    读取失败则回退到环境变量 TQ_MOBILE_FILES_DIR，两者都没有说明不是移动端。
+    """
+    try:
+        from java import jclass  # type: ignore[import-not-found]  # 仅 Chaquopy 存在
+        value = jclass("java.lang.System").getProperty("za.filesdir")
+        if value:
+            return Path(value)
+    except Exception:
+        pass
+    env = os.environ.get("TQ_MOBILE_FILES_DIR")
+    if env:
+        return Path(env)
+    return None
 
 
 def load_saved_credentials() -> tuple[str, str]:
@@ -83,6 +112,16 @@ def save_credentials(account: str, password: str) -> Path:
     return path
 
 
+def clear_credentials() -> None:
+    """清除本地保存的天勤凭据（"退出登录"时调用）。"""
+    path = _credentials_path()
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
 def load_config(path: Path | None = None) -> Config:
     config = Config()
     config_path = path or _default_config_path()
@@ -103,7 +142,7 @@ def load_config(path: Path | None = None) -> Config:
         config.risk.max_loss_per_trade = float(risk.get("max_loss_per_trade", config.risk.max_loss_per_trade))
         config.risk.risk_percent = float(risk.get("risk_percent", config.risk.risk_percent))
         config.risk.max_contracts = int(risk.get("max_contracts", config.risk.max_contracts))
-    # 本地凭据存储（登录界面保存）覆盖 config.json——"像 cookie 一样"自动复用。
+    # 本地凭据存储（登录界面保存）覆盖 config.json，实现"保存一次、后续自动登录"。
     saved_account, saved_password = load_saved_credentials()
     if saved_account and saved_password:
         config.tqsdk.account, config.tqsdk.password = saved_account, saved_password

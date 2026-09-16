@@ -59,8 +59,14 @@ class ConnectionManager:
             self._empty_since = time.monotonic()
         return time.monotonic() - self._empty_since
 
+    def client_count(self) -> int:
+        """当前 WebSocket 客户端数量（status 延迟统计用）。"""
+        return len(self._connections)
+
     async def broadcast_quote(self, quote: MarketQuote) -> None:
-        payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict()}
+        # ts：服务端发送时刻（Unix 秒）——前端用它计算端到端延迟（P0-200ms 埋点）
+        payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
+                   "ts": time.time()}
         async with self._lock:
             targets = list(self._connections)
         for websocket in targets:

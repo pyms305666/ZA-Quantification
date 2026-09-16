@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import re
-import threading
 import threading
 import time
 from concurrent.futures import Future
@@ -32,9 +33,21 @@ EXCHANGE_INSTRUMENT_CASE = {
     "CZCE": "upper", "CFFEX": "upper",
 }
 
+logger = logging.getLogger("gateway.tqdiff")
+# K 线结构化诊断开关（P0-HISTORY_EMPTY 定位）：启动前设置 TQ_GATEWAY_DEBUG=1 开启
+KLINE_DEBUG = os.getenv("TQ_GATEWAY_DEBUG", "") == "1"
+
 
 class TqClientError(RuntimeError):
     """连接或命令执行失败（与旧 TqClient 对外一致的错误类型）。"""
+
+
+class SymbolNotFoundError(TqClientError):
+    """合约目录已就绪，但查不到该合约。
+
+    与"目录未就绪"（普通 TqClientError）区分开：订阅层据此决定
+    严格拒绝（查无此合约）还是降级放行（目录还没下载完）。
+    """
 
 
 def _candidates(symbol: str) -> list[str]:
@@ -68,6 +81,7 @@ class DiffClient:
         self._last_status = ""
         self._on_quote_change: Optional[Callable[[Any], None]] = None
         self._on_status: Optional[Callable[[str], None]] = None
+        self._on_connected: Optional[Callable[[], None]] = None
         self._catalog_progress: Optional[str] = None   # 合约目录下载进度（如 "12MB/256MB"）
         # 事件循环与连接
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -91,9 +105,11 @@ class DiffClient:
         self,
         on_quote_change: Optional[Callable[[Any], None]] = None,
         on_status: Optional[Callable[[str], None]] = None,
+        on_connected: Optional[Callable[[], None]] = None,
     ) -> None:
         self._on_quote_change = on_quote_change
         self._on_status = on_status
+        self._on_connected = on_connected
 
     @property
     def connected(self) -> bool:
@@ -252,6 +268,12 @@ class DiffClient:
             self._status("行情服务器已连接")
             self._ensure_symbol_file_task()
             await self._send({"aid": "peek_message"})
+            # 缺陷 F（桌面/手机同病）：服务器断开即丢弃本端全部订阅与图表状态，
+            # 重连后若不重放，会出现"连接恢复但行情推送冻结"（K 线拉取正常、
+            # 缓存报价停在断网前旧值）。这里在每次连接建立后按订阅表/图表缓冲重放。
+            await self._resend_subscribe()
+            await self._resend_charts()
+            self._notify_connected()
             async for raw in ws:
                 if self._stop.is_set():
                     return
@@ -407,9 +429,17 @@ class DiffClient:
                     if index == "@":
                         continue
                     try:
-                        buffer["rows"][int(index)] = row
+                        row_id = int(index)
                     except (TypeError, ValueError):
                         continue
+                    existing = buffer["rows"].get(row_id)
+                    if isinstance(existing, dict) and isinstance(row, dict):
+                        # DIFF 增量只送"变化的字段"（与 quotes 的 update 同语义）：必须合并。
+                        # 整体替换会把正在形成的 K 线冲掉部分字段（盘中增量常只有 close/volume），
+                        # 该根 K 线因缺 open/low 解析失败从图上消失，直到重启重新拉全量才恢复。
+                        existing.update(row)
+                    else:
+                        buffer["rows"][row_id] = row
                 anchor = data.get("@")
             else:
                 anchor = None
@@ -477,6 +507,32 @@ class DiffClient:
         if ins_list:
             await self._send(pack)
 
+    async def _resend_charts(self) -> None:
+        """重连后重放所有 set_chart：服务器断开即丢弃图表状态，不重放则 K 线停止刷新。
+
+        缺陷 F 配套：仅 subscribe_quote 重放不够——set_chart 丢失后服务器不再推 K 线
+        增量，页面看起来"连着"但图不动。重发用与首次相同的 chart_id，服务器据此
+        恢复推送；last_id 清零让它从最新可见位置重新发全量。
+        """
+        with self._data_lock:
+            charts = [(key, buf) for key, buf in self._charts.items()]
+        for (symbol, dur_ns), buffer in charts:
+            chart_id = f"ZAQ_{abs(hash((symbol, dur_ns))) % 10**10}"
+            await self._send({
+                "aid": "set_chart", "chart_id": chart_id,
+                "ins_list": symbol, "duration": dur_ns,
+                "view_width": buffer.get("view_width", 400),
+            })
+
+    def _notify_connected(self) -> None:
+        """连接建立（含重连）后回调：供订阅管理器重放挂起的订阅（缺陷 A/F）。"""
+        if self._on_connected is not None:
+            try:
+                self._on_connected()
+            except Exception:
+                pass   # 回调绝不允许拖垮行情线程
+
+
     async def _subscribe(self, symbol: str) -> str:
         # 订阅行情完全不依赖合约目录文件（只依赖规范代码）。
         # 目录是否就绪不影响订阅：就绪则顺便校验过期/名称，未就绪直接用 _candidates 规范化订阅，
@@ -527,7 +583,7 @@ class DiffClient:
             raise TqClientError("合约目录后台下载中，请稍候重试")
         record = self._file_entry(symbol)
         if record is None:
-            raise TqClientError(f"合约不存在或查询失败：{symbol}")
+            raise SymbolNotFoundError(f"合约不存在或查询失败：{symbol}")
         # _symbol_file 存的是精简 record，直接返回
         return dict(record)
 
@@ -561,7 +617,13 @@ class DiffClient:
         return sorted(symbols)
 
     async def _get_kline(self, symbol: str, period: int, count: int) -> list[dict]:
-        # K 线不依赖合约目录文件：目录还在后台下载时也应可用
+        # K 线不依赖合约目录文件：目录还在后台下载时也应可用。
+        # 诊断（P0-HISTORY_EMPTY 定位）：TQ_GATEWAY_DEBUG=1 时输出请求ID/等待/行数/异常的结构化日志。
+        req_id = self._kline_seq = getattr(self, "_kline_seq", 0) + 1
+        t0 = time.monotonic()
+        if KLINE_DEBUG:
+            logger.info("[kline #%d] start symbol=%s period=%ds count=%d",
+                        req_id, symbol, period, count)
         canonical = symbol
         dur_ns = period * 1_000_000_000
         fetch_length = max(count, 400)
@@ -591,6 +653,8 @@ class DiffClient:
                 "duration": dur_ns,
                 "view_width": fetch_length,
             }
+            if KLINE_DEBUG:
+                logger.info("[kline #%d] set_chart pack=%s", req_id, pack)
             deadline = time.monotonic() + 20.0
             resend_at = 0.0
             while time.monotonic() < deadline:
@@ -604,7 +668,13 @@ class DiffClient:
                 if last_id >= 0:
                     break
             if last_id < 0:
+                if KLINE_DEBUG:
+                    logger.warning("[kline #%d] init timeout %.1fs（服务器始终未确认 chart）",
+                                   req_id, time.monotonic() - t0)
                 raise TqClientError(f"K线数据初始化失败：{symbol} {period}s")
+            if KLINE_DEBUG:
+                logger.info("[kline #%d] chart ready %.2fs last_id=%d",
+                            req_id, time.monotonic() - t0, last_id)
         with self._data_lock:
             buffer = self._charts[key]
             rows = dict(buffer["rows"])
@@ -622,10 +692,27 @@ class DiffClient:
                 need_from = max(0, last_id - fetch_length + 1)
                 missing = [i for i in range(need_from, last_id + 1) if i not in rows]
             if missing:
+                if KLINE_DEBUG:
+                    need_n = last_id - need_from + 1
+                    logger.warning("[kline #%d] incomplete %s %ds need=%d got=%d missing=%d elapsed=%.1fs",
+                                   req_id, symbol, period, need_n, need_n - len(missing),
+                                   len(missing), time.monotonic() - t0)
                 raise TqClientError(f"K线数据不完整：{symbol} {period}s（缺 {len(missing)} 根）")
         bars: list[dict] = []
         for index in range(need_from, last_id + 1):
             bar = diff_auth.parse_kline_row(rows.get(index))
             if bar is not None:
                 bars.append(bar)
+        if not bars:
+            # 服务器确认了 chart 却没有任何有效 K 线行：明确报“历史不可用”，
+            # 绝不允许上层用实时快照/模拟数据顶替历史 K 线（P0 约定）。
+            if KLINE_DEBUG:
+                logger.warning("[kline #%d] history unavailable %s %ds rows=%d elapsed=%.1fs",
+                               req_id, symbol, period, len(rows), time.monotonic() - t0)
+            raise TqClientError(
+                f"历史K线数据不可用：{symbol} {period}s（服务器未返回有效历史数据）")
+        if KLINE_DEBUG:
+            logger.info("[kline #%d] ok %s %ds bars=%d/%d elapsed=%.2fs",
+                        req_id, symbol, period, len(bars), last_id - need_from + 1,
+                        time.monotonic() - t0)
         return bars[-count:]

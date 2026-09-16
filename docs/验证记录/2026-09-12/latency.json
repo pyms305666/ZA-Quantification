@@ -1,0 +1,11 @@
+{
+  "stats": {
+    "count": 4,
+    "avg_ms": 0.4,
+    "p50_ms": 0.4,
+    "p95_ms": 0.4,
+    "max_ms": 0.7,
+    "min_ms": 0.2,
+    "verdict": "INCONCLUSIVE"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "symbol": "SHFE.rb2610",
+  "ok": true,
+  "quote": {
+    "symbol": "SHFE.rb2610",
+    "exchange": "SHFE",
+    "instrument_id": "rb2610",
+    "timestamp": null,
+    "last": 3044.0,
+    "open": 3037.0,
+    "high": null,
+    "low": null,
+    "pre_close": 3046.0,
+    "volume": 32678.0,
+    "open_interest": 407631.0,
+    "bid": [
+      {
+        "price": 3044.0,
+        "volume": 24.0
+      },
+      {
+        "price": 3043.0,
+        "volume": 32.0
+      },
+      {
+        "price": 3042.0,
+        "volume": 33.0
+      },
+      {
+        "price": 3041.0,
+        "volume": 40.0
+      },
+      {
+        "price": 3040.0,
+        "volume": 200.0
+      }
+    ],
+    "ask": [
+      {
+        "price": 3047.0,
+        "volume": 75.0
+      },
+      {
+        "price": 3048.0,
+        "volume": 29.0
+      },
+      {
+        "price": 3049.0,
+        "volume": 145.0
+      },
+      {
+        "price": 3050.0,
+        "volume": 467.0
+      },
+      {
+        "price": 3051.0,
+        "volume": 89.0
+      }
+    ]
+  }
+}

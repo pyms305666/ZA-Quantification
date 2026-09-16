@@ -12,8 +12,6 @@ DELETE /api/v1/subscriptions/{symbol} 退订
 
 from __future__ import annotations
 
-import logging
-
 import asyncio
 import logging
 import os
@@ -35,7 +33,7 @@ from tq.client import TqClient, TqClientError
 from tq.instruments import InstrumentManager, normalize_symbol
 from tq.subscriber import SubscriptionManager
 from .websocket import create_ws_router
-from services import Services, build_services
+from services import Services, build_services, _broadcast_loop
 
 KLINE_PERIODS = {
     60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线",
@@ -131,6 +129,7 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
                 futures_count = len(services.instruments.futures())
             except TqClientError:
                 pass
+        catalog_ready = getattr(services.client, "catalog_ready", True)
         return {
             "connected": services.client.connected,
             "account": mask_account(services.client.account) if services.client.account else "",
@@ -138,6 +137,13 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
             "subscribed": services.subscriptions.subscribed(),
             "quote_count": len(services.cache),
             "futures_count": futures_count,
+            "catalog_ready": catalog_ready,
+            "catalog_loading": services.client.connected and not catalog_ready,
+            "catalog_progress": getattr(services.client, "catalog_progress", None),
+            # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
+            "last_quote_unix": services.last_quote_unix,
+            "quote_recv_total": services.quote_recv_total,
+            "ws_clients": services.connections.client_count(),
             "route": ROUTE_NAME,
         }
 

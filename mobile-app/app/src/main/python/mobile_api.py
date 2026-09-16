@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import queue
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional
@@ -20,7 +20,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from config import load_config
+from config import load_config, save_credentials, clear_credentials
 from market.evaluator import evaluate
 from tq.client import TqClientError
 from tq.instruments import normalize_symbol
@@ -49,17 +49,24 @@ class MobileHub:
         self.config = config
         self.static_dir = static_dir
         self.route = ROUTE_NAME
-        self.services = build_services(config)
+        # 缺陷 C 修复：把 MobileHub 自己的行情回调注入 build_services。
+        # 此前 build_services 挂的是 Services.on_quote_change（依赖 services.loop，
+        # 手机端从未设置），而 MobileHub.on_quote_change→_enqueue→_broadcast_loop
+        # 整条广播链从未注册——WS 客户端一条 quote 都收不到，UI 只能靠 REST 轮询。
+        self.services = build_services(config, on_quote_change=self.on_quote_change)
         self.client = self.services.client
         self.instruments = self.services.instruments
         self.subscriptions = self.services.subscriptions
         self.cache = self.services.cache
         self.connections: list[WebSocket] = []
-        self.queue: Optional[queue.Queue] = None        # 线程安全同步队列（无 loop 绑定）
+        self.queue: Optional[asyncio.Queue] = None     # uvicorn loop 内创建；行情线程经 call_soon_threadsafe 投递
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
-    # ---- 行情线程回调（与桌面版 Services.on_quote_change 一致） ----
+    # ---- 行情线程回调（接管 Services.on_quote_change：统计埋点 + 缓存 + 广播投递） ----
     def on_quote_change(self, quote) -> None:
+        # 延迟统计埋点必须与广播同一条链，否则 status 的 quote_recv_total 永远为 0
+        self.services.last_quote_unix = time.time()
+        self.services.quote_recv_total += 1
         self.services.cache.set(quote)
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self._enqueue, quote)
@@ -97,28 +104,24 @@ class MobileHub:
     # ---- WebSocket 广播 ----
     def on_startup(self) -> None:
         self.loop = asyncio.get_running_loop()
-        self.queue = queue.Queue()                      # 线程安全，无 loop 绑定
+        # asyncio.Queue 必须在 uvicorn loop 内创建，行情线程只经
+        # call_soon_threadsafe(_enqueue) 投递——不跨线程直接操作就没有 loop 绑定问题，
+        # 且是即时唤醒（旧实现同步队列 + 0.2s 轮询，每笔行情最多平白叠 200ms 延迟，
+        # 直接顶满 200ms P95 目标的上限）。
+        self.queue = asyncio.Queue()
         self.client.start()
         self.loop.create_task(self._broadcast_loop())
 
-    def on_startup_hook(self) -> None:
-        """供 on_startup 调用的显式钩子（预留扩展）。"""
-        self.client.start()
-
     def _enqueue(self, quote) -> None:
-        # 在 uvicorn loop 线程内调用的入队（线程安全）
-        self.queue.put(quote)
+        # 由 call_soon_threadsafe 调入 uvicorn loop 线程执行：put_nowait 即时唤醒广播协程
+        if self.queue is not None:
+            self.queue.put_nowait(quote)
 
     async def _broadcast_loop(self) -> None:
         while True:
-            # 轮询同步队列（每 0.2s），彻底避开 asyncio.Queue 的 loop 绑定问题
-            quote = None
-            while quote is None:
-                try:
-                    quote = self.queue.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.2)
-            payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict()}
+            quote = await self.queue.get()
+            payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
+                       "ts": time.time()}   # 服务端发送时刻，前端算端到端延迟（P0-200ms 埋点）
             dead = []
             for ws in list(self.connections):
                 try:
@@ -133,14 +136,40 @@ class MobileHub:
 def create_mobile_app(hub: MobileHub) -> Starlette:
     """构建移动版接口应用（与桌面 REST/WS 协议一致）。"""
 
+    def mask_account(account: str) -> str:
+        return account[:3] + "****" + account[-2:] if len(account) > 6 else "****"
+
     async def auth_status(request):
-        """登录状态：手机端凭据保存在 App 私有目录，向天勤直连无需额外登录，
-        返回 configured=True（mobile_api 免账户登录流程，天勤凭据存本地）"""
-        return _json({"configured": True, "account": "本机账户"})
+        """登录状态：只返回是否已配置与掩码账号，绝不返回密码。"""
+        configured = hub.client.credentials_configured
+        account = hub.client.account
+        return _json({"configured": configured,
+                      "account": mask_account(account) if configured and account else ""})
+
+    async def auth_set(request):
+        """保存天勤凭据（App 私有目录，git 忽略）并触发重新登录。"""
+        try:
+            body = await request.json()
+        except Exception:
+            return _json({"detail": "请求体必须是 JSON"}, 422)
+        account = str(body.get("account", "")).strip()
+        password = str(body.get("password", ""))
+        if not account or not password:
+            return _json({"detail": "账号与密码不能为空"}, 422)
+        save_credentials(account, password)
+        hub.client.set_credentials(account, password)
+        return _json({"ok": True, "account": mask_account(account), "route": hub.route})
+
+    async def auth_delete(request):
+        """退出登录：清除本地凭据并断开行情连接。"""
+        clear_credentials()
+        hub.client.set_credentials("", "")
+        return _json({"ok": True})
 
     async def status(request):
         catalog = None
-        if hub.client.connected:
+        catalog_ready = getattr(hub.client, "catalog_ready", True)
+        if hub.client.connected and catalog_ready:
             try:
                 catalog = len(hub.instruments.futures())
             except Exception:
@@ -152,6 +181,13 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
                       "subscribed": hub.subscriptions.subscribed(),
                       "quote_count": len(hub.cache),
                       "futures_count": catalog,
+                      "catalog_ready": catalog_ready,
+                      "catalog_loading": hub.client.connected and not catalog_ready,
+                      "catalog_progress": getattr(hub.client, "catalog_progress", None),
+                      # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
+                      "last_quote_unix": hub.services.last_quote_unix,
+                      "quote_recv_total": hub.services.quote_recv_total,
+                      "ws_clients": len(hub.connections),
                       "route": hub.route})
 
     async def instruments(request):
@@ -160,8 +196,10 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         exchange = request.query_params.get("exchange", "").upper()
         keyword = request.query_params.get("keyword", "")
         try:
+            # 缺陷 D：不再硬编码 limit=200（此前 578 条期货只能看到前 200）。
+            # 全量返回，前端按滚动位置增量渲染（renderSearch 分批 append）。
             items = await run_blocking(
-                hub.instruments.list, exchange=exchange, keyword=keyword)
+                hub.instruments.list, exchange=exchange, keyword=keyword, limit=0)
         except TqClientError as error:
             return _json({"detail": str(error)}, 503)
         return _json({"total": len(items), "exchange": exchange,
@@ -271,7 +309,9 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
     routes = [
         Route("/", index),
-        Route("/api/v1/auth", auth_status),
+        Route("/api/v1/auth", auth_status, methods=["GET"]),
+        Route("/api/v1/auth", auth_set, methods=["POST"]),
+        Route("/api/v1/auth", auth_delete, methods=["DELETE"]),
         Route("/api/v1/status", status),
         Route("/api/v1/instruments", instruments),
         Route("/api/v1/quote/{symbol:path}", quote),

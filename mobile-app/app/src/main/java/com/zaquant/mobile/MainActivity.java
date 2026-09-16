@@ -1,6 +1,10 @@
 package com.zaquant.mobile;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.Manifest;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -26,11 +30,15 @@ public class MainActivity extends Activity {
             "<p style='font-family:sans-serif;text-align:center;margin-top:45%;color:#8b96a3'>启动中…</p>",
             "text/html", "utf-8", null);
 
-        if (!Python.isStarted()) {
-            // Chaquopy 16.x 新 API：Python.start(Platform)，不再用 Python.init(context, platform)
-            Python.start(new AndroidPlatform(this));
+        // 缺陷 B：后端以前台服务形式启动（锁屏保活），Activity 不再直接调 backend_main。
+        // Android 13+ 需运行时申请通知权限，否则前台服务通知不可见、系统仍可能冻结。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+            }
         }
-        Python.getInstance().getModule("backend_main").callAttr("start");
+        startService(new Intent(this, BackendService.class));
         waitAndLoad();
     }
 

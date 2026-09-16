@@ -1,0 +1,20 @@
+{
+  "serial": "10CG6319PZ002E5",
+  "base": "http://127.0.0.1:18000",
+  "status": {
+    "connected": true,
+    "account": "189****36",
+    "error": null,
+    "subscribed": [],
+    "quote_count": 0,
+    "futures_count": 578,
+    "catalog_ready": true,
+    "catalog_loading": false,
+    "catalog_progress": null,
+    "last_quote_unix": 0.0,
+    "quote_recv_total": 0,
+    "ws_clients": 1,
+    "route": "C 直连版"
+  },
+  "kline_changed": true
+}

@@ -1,0 +1,201 @@
+{
+  "symbol": "SHFE.rb2610",
+  "periods": [
+    "60",
+    "300",
+    "86400"
+  ],
+  "minutes": 0.7,
+  "verdict": "INCONCLUSIVE",
+  "market_active": false,
+  "per_period": {
+    "1分钟": {
+      "period_sec": 60,
+      "verdict": "INCONCLUSIVE",
+      "reason": "采样期间无新行情（休市/无成交）——换交易时段再测",
+      "kline_changes": 0
+    },
+    "5分钟": {
+      "period_sec": 300,
+      "verdict": "INCONCLUSIVE",
+      "reason": "采样期间无新行情（休市/无成交）——换交易时段再测",
+      "kline_changes": 0
+    },
+    "日线": {
+      "period_sec": 86400,
+      "verdict": "INCONCLUSIVE",
+      "reason": "采样期间无新行情（休市/无成交）——换交易时段再测",
+      "kline_changes": 0
+    }
+  },
+  "timeline": [
+    {
+      "t": 0.0,
+      "wall": "12:10:49",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 6.2,
+      "wall": "12:10:55",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 12.3,
+      "wall": "12:11:01",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 18.3,
+      "wall": "12:11:07",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 24.4,
+      "wall": "12:11:13",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 30.4,
+      "wall": "12:11:19",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    },
+    {
+      "t": 36.4,
+      "wall": "12:11:25",
+      "quote_dt": null,
+      "quote_volume": 32678.0,
+      "P60": {
+        "bars": 200,
+        "last_dt": 1789138740000,
+        "last_close": 3044.0,
+        "last_volume": 1083.0
+      },
+      "P300": {
+        "bars": 200,
+        "last_dt": 1789138500000,
+        "last_close": 3044.0,
+        "last_volume": 1947.0
+      },
+      "P86400": {
+        "bars": 200,
+        "last_dt": 1789315200000,
+        "last_close": 3044.0,
+        "last_volume": 32678.0
+      }
+    }
+  ]
+}

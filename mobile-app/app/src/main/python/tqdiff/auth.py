@@ -161,6 +161,12 @@ def load_cached_symbol_file(max_age: float = SYMBOL_CACHE_TTL) -> Optional[dict]
             rec = symbol_index.parse_record(symbol, entry)
             if rec is not None:
                 result[symbol] = rec
+        # 一次性迁移：把旧 JSON 转换结果落盘为 pickle 索引，下次启动秒级加载
+        # （桌面端存在 256MB 旧 JSON 缓存，转换一次后不再重复整段解析）
+        try:
+            symbol_index.save_index(result, _index_path())
+        except OSError:
+            pass
         return result
     return None
 
