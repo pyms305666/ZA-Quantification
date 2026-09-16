@@ -7,6 +7,7 @@ import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 
@@ -22,6 +23,7 @@ import com.chaquo.python.android.AndroidPlatform;
 public class BackendService extends Service {
     private static final String CHANNEL_ID = "zaquant_backend";
     private static final int NOTIFICATION_ID = 1;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -40,17 +42,48 @@ public class BackendService extends Service {
                 .setOngoing(true)
                 .build();
         startForeground(NOTIFICATION_ID, notification);
+        acquireWakeLock();
 
-        if (!Python.isStarted()) {
-            Python.start(new AndroidPlatform(this));
+        try {
+            if (!Python.isStarted()) {
+                Python.start(new AndroidPlatform(this));
+            }
+            System.setProperty("za.filesdir", getFilesDir().getAbsolutePath());
+            Python.getInstance().getModule("backend_main").callAttr("start");
+        } catch (RuntimeException error) {
+            releaseWakeLock();
+            stopSelf();
+            throw error;
         }
-        System.setProperty("za.filesdir", getFilesDir().getAbsolutePath());
-        Python.getInstance().getModule("backend_main").callAttr("start");
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
+    }
+
+    private void acquireWakeLock() {
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        if (powerManager == null || (wakeLock != null && wakeLock.isHeld())) {
+            return;
+        }
+        wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, getPackageName() + ":backend");
+        wakeLock.setReferenceCounted(false);
+        wakeLock.acquire();
+    }
+
+    private void releaseWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+        }
+        wakeLock = null;
+    }
+
+    @Override
+    public void onDestroy() {
+        releaseWakeLock();
+        super.onDestroy();
     }
 
     private void createChannel() {

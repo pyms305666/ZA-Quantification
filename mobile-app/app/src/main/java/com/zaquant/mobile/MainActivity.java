@@ -1,11 +1,16 @@
 package com.zaquant.mobile;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.Manifest;
+import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import com.chaquo.python.Python;
@@ -38,8 +43,38 @@ public class MainActivity extends Activity {
                 requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
             }
         }
-        startService(new Intent(this, BackendService.class));
+        Intent backendService = new Intent(this, BackendService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(backendService);
+        } else {
+            startService(backendService);
+        }
+        requestBatteryOptimizationExemptionOnce();
         waitAndLoad();
+    }
+
+    private void requestBatteryOptimizationExemptionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        if (powerManager == null
+                || powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
+            return;
+        }
+        SharedPreferences preferences = getSharedPreferences("backend", MODE_PRIVATE);
+        if (preferences.getBoolean("battery_optimization_requested", false)) {
+            return;
+        }
+        preferences.edit().putBoolean("battery_optimization_requested", true).apply();
+        try {
+            Intent request = new Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(request);
+        } catch (ActivityNotFoundException ignored) {
+            // 厂商系统未提供授权页面时仍继续使用前台服务和唤醒锁。
+        }
     }
 
     private void waitAndLoad() {
