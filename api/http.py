@@ -130,6 +130,7 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
             except TqClientError:
                 pass
         catalog_ready = getattr(services.client, "catalog_ready", True)
+        catalog_complete = getattr(services.client, "catalog_complete", catalog_ready)
         return {
             "connected": services.client.connected,
             "account": mask_account(services.client.account) if services.client.account else "",
@@ -138,7 +139,8 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
             "quote_count": len(services.cache),
             "futures_count": futures_count,
             "catalog_ready": catalog_ready,
-            "catalog_loading": services.client.connected and not catalog_ready,
+            "catalog_complete": catalog_complete,
+            "catalog_loading": services.client.connected and not catalog_complete,
             "catalog_progress": getattr(services.client, "catalog_progress", None),
             # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
             "last_quote_unix": services.last_quote_unix,
@@ -270,5 +272,3 @@ def _lifespan(services: Services):
             services.client.close()
 
     return lifespan
-
-

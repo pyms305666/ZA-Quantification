@@ -169,6 +169,7 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
     async def status(request):
         catalog = None
         catalog_ready = getattr(hub.client, "catalog_ready", True)
+        catalog_complete = getattr(hub.client, "catalog_complete", catalog_ready)
         if hub.client.connected and catalog_ready:
             try:
                 catalog = len(hub.instruments.futures())
@@ -182,7 +183,8 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
                       "quote_count": len(hub.cache),
                       "futures_count": catalog,
                       "catalog_ready": catalog_ready,
-                      "catalog_loading": hub.client.connected and not catalog_ready,
+                      "catalog_complete": catalog_complete,
+                      "catalog_loading": hub.client.connected and not catalog_complete,
                       "catalog_progress": getattr(hub.client, "catalog_progress", None),
                       # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
                       "last_quote_unix": hub.services.last_quote_unix,
