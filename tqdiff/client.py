@@ -560,18 +560,10 @@ class DiffClient:
             if not candidates or not candidates[0]:
                 raise TqClientError(f"合约不存在或查询失败：{symbol}")
             canonical = candidates[0]
-        event = self._quote_events.get(canonical)
-        if event is None:
-            event = asyncio.Event()
-            self._quote_events[canonical] = event
         if canonical not in self._subscribed:
             with self._data_lock:
                 self._subscribed.add(canonical)
             await self._resend_subscribe()
-        try:
-            await asyncio.wait_for(event.wait(), timeout=8.0)
-        except asyncio.TimeoutError:
-            pass  # 非交易时段可能无首笔行情：订阅本身已成功
         # 休市时段服务器不再推 diffs：主动重放当前快照，保证页面订阅后立刻有行情
         with self._data_lock:
             snapshot = dict(self._quotes.get(canonical) or {})

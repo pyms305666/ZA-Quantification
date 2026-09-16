@@ -179,5 +179,16 @@ class CatalogCompletenessTests(unittest.TestCase):
         self.assertTrue(client.catalog_complete)
 
 
+class SubscriptionLatencyTests(unittest.TestCase):
+    def test_subscribe_returns_without_waiting_for_first_quote(self):
+        client = DiffClient("acc", "pwd")
+        client._subscribed.add("SHFE.au2612")
+
+        async def subscribe():
+            return await asyncio.wait_for(client._subscribe("SHFE.au2612"), timeout=0.1)
+
+        self.assertEqual(asyncio.run(subscribe()), "SHFE.au2612")
+
+
 if __name__ == "__main__":
     unittest.main()
