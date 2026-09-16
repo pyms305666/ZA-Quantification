@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 
 from tqdiff import auth as diff_auth
+from tqdiff.client import DiffClient, SymbolNotFoundError, TqClientError
 
 
 class ParseInstrumentRecordTests(unittest.TestCase):
@@ -153,6 +155,28 @@ class KlineDiffMergeTests(unittest.TestCase):
             "data": {"1": {}}, "last_id": 1}}}})
         # 未注册的图表数据被安全忽略，不影响已有图表
         self.assertEqual(client._charts[("SHFE.rb2610", self.DUR)]["last_id"], -1)
+
+
+class CatalogCompletenessTests(unittest.TestCase):
+    def _partial_client(self) -> DiffClient:
+        client = DiffClient("acc", "pwd")
+        client._file_loaded.set()
+        client._symbol_file = {"SHFE.rb2610": {"symbol": "SHFE.rb2610"}}
+        return client
+
+    def test_partial_catalog_miss_is_recoverable(self):
+        client = self._partial_client()
+        with self.assertRaises(TqClientError) as raised:
+            asyncio.run(client._get_instrument("SHFE.au2612"))
+        self.assertNotIsInstance(raised.exception, SymbolNotFoundError)
+        self.assertFalse(client.catalog_complete)
+
+    def test_complete_catalog_miss_is_strictly_rejected(self):
+        client = self._partial_client()
+        client._catalog_complete.set()
+        with self.assertRaises(SymbolNotFoundError):
+            asyncio.run(client._get_instrument("SHFE.au2612"))
+        self.assertTrue(client.catalog_complete)
 
 
 if __name__ == "__main__":

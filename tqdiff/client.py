@@ -91,6 +91,8 @@ class DiffClient:
         self._file_task: Optional[asyncio.Task] = None
         # threading.Event：跨线程/跨事件循环都安全（asyncio.Event 会绑定创建它的 loop）
         self._file_loaded = threading.Event()
+        # 可搜索与完整可校验是不同状态：内置表/增量解析只能前者。
+        self._catalog_complete = threading.Event()
         # 数据状态（仅事件循环协程内读写；快照读取加 _data_lock）
         self._data_lock = threading.Lock()
         self._symbol_file: dict[str, Any] = {}
@@ -136,8 +138,13 @@ class DiffClient:
 
     @property
     def catalog_ready(self) -> bool:
-        """合约目录是否已就绪（供接口区分"下载中"与"合约不存在"）。"""
+        """是否已有可搜索的目录记录（兼容既有状态接口）。"""
         return self._file_loaded.is_set()
+
+    @property
+    def catalog_complete(self) -> bool:
+        """完整目录是否已加载，可据此严格判定本地未命中。"""
+        return self._catalog_complete.is_set()
 
     @property
     def catalog_progress(self) -> Optional[str]:
@@ -315,6 +322,7 @@ class DiffClient:
             with self._data_lock:
                 self._symbol_file = cached
             self._file_loaded.set()
+            self._catalog_complete.set()
             self._status(f"合约目录就绪（缓存，{len(cached)} 个合约）")
             return
 
@@ -343,6 +351,7 @@ class DiffClient:
                 with self._data_lock:
                     self._symbol_file = symbols
                 self._file_loaded.set()
+                self._catalog_complete.set()
                 self._set_catalog_progress(None)   # 就绪后清除进度
                 self._status(f"合约目录就绪（{len(symbols)} 个合约）")
                 return
@@ -583,6 +592,8 @@ class DiffClient:
             raise TqClientError("合约目录后台下载中，请稍候重试")
         record = self._file_entry(symbol)
         if record is None:
+            if not self._catalog_complete.is_set():
+                raise TqClientError("合约目录尚未完整，交由行情服务确认")
             raise SymbolNotFoundError(f"合约不存在或查询失败：{symbol}")
         # _symbol_file 存的是精简 record，直接返回
         return dict(record)
