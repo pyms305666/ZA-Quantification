@@ -208,6 +208,19 @@ class DiffClient:
         except Exception as error:
             raise TqClientError(str(error)) from error
 
+    def queue_subscription(self, symbol: str) -> None:
+        """登记订阅并异步重放，不等待行情循环处理完成。
+
+        首次下载和解析完整合约目录会持续占用 Python 运行时。目录尚未完整时，
+        订阅不能因此阻塞 HTTP 请求；状态先写入重连可重放的集合，行情循环恢复
+        调度后再发送 subscribe_quote。
+        """
+        with self._data_lock:
+            self._subscribed.add(symbol)
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._resend_subscribe(), loop)
+
     def set_credentials(self, account: str, password: str) -> None:
         """运行中设置天勤凭据（登录界面保存后调用）。
 

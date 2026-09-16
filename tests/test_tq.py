@@ -17,10 +17,16 @@ class FakeClient:
 
     connected = True
     catalog_ready = True
+    catalog_complete = True
 
     def __init__(self) -> None:
         self.commands: list[tuple[str, tuple]] = []
+        self.queued_subscriptions: list[str] = []
         self.subscribed: set[str] = set()
+
+    def queue_subscription(self, symbol: str) -> None:
+        self.queued_subscriptions.append(symbol)
+        self.subscribed.add(symbol)
 
     def run_command(self, command: str, *args: object, timeout: float = 8.0) -> object:
         self.commands.append((command, args))
@@ -118,10 +124,12 @@ class SubscriptionManagerTests(unittest.TestCase):
 
     def test_subscribe_skips_catalog_lookup_until_catalog_is_searchable(self):
         self.client.catalog_ready = False
+        self.client.catalog_complete = False
         result = self.manager.subscribe(["SHFE.au2612"])
         self.assertEqual(result["subscribed"], ["SHFE.au2612"])
         self.assertEqual(result["failed"], [])
-        self.assertEqual(self.client.commands, [("subscribe", ("SHFE.au2612",))])
+        self.assertEqual(self.client.commands, [])
+        self.assertEqual(self.client.queued_subscriptions, ["SHFE.au2612"])
 
     def test_unsubscribe(self):
         self.manager.subscribe(["DCE.m2609"])

@@ -72,6 +72,13 @@ class SubscriptionManager:
                 if instrument.expire_rest_days is not None and instrument.expire_rest_days <= 1:
                     failed.append({"symbol": raw, "reason": f"合约临近交割（剩余 {instrument.expire_rest_days} 天），拒绝订阅"})
                     continue
+            if not getattr(self._client, "catalog_complete", True):
+                queue_subscription = getattr(self._client, "queue_subscription", None)
+                if callable(queue_subscription):
+                    queue_subscription(normalized)
+                    self._subscribed[raw] = normalized
+                    subscribed.append(normalized)
+                    continue
             # 目录未就绪（跳过本地查询）或有目录记录 → 继续提交订阅
             try:
                 self._client.run_command("subscribe", normalized, timeout=10.0)

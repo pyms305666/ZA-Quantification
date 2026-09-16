@@ -189,6 +189,23 @@ class SubscriptionLatencyTests(unittest.TestCase):
 
         self.assertEqual(asyncio.run(subscribe()), "SHFE.au2612")
 
+    def test_resend_subscribe_releases_data_lock_before_sending(self):
+        client = DiffClient("acc", "pwd")
+        client._subscribed.add("SHFE.au2612")
+
+        async def send(pack):
+            self.assertFalse(client._data_lock.locked())
+
+        client._send = send
+        asyncio.run(client._resend_subscribe())
+
+    def test_queue_subscription_records_state_without_waiting_for_loop(self):
+        client = DiffClient("acc", "pwd")
+
+        client.queue_subscription("SHFE.au2612")
+
+        self.assertEqual(client._subscribed, {"SHFE.au2612"})
+
 
 if __name__ == "__main__":
     unittest.main()
