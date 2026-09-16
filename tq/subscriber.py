@@ -52,14 +52,15 @@ class SubscriptionManager:
                     skipped.append(normalized)
                 continue
             seen.add(normalized)
-            catalog_unavailable = False
-            try:
-                instrument = self._instruments.get(normalized)
-            except TqClientError:
-                # 目录未就绪/查询失败（如"合约目录后台下载中"）：降级放行，
-                # 由行情服务器校验合约是否存在，规避"目录下载中误报合约不存在"。
-                instrument = None
-                catalog_unavailable = True
+            catalog_unavailable = not getattr(self._client, "catalog_ready", True)
+            instrument = None
+            if not catalog_unavailable:
+                try:
+                    instrument = self._instruments.get(normalized)
+                except TqClientError:
+                    # 目录未就绪/查询失败（如"合约目录后台下载中"）：降级放行，
+                    # 由行情服务器校验合约是否存在，规避"目录下载中误报合约不存在"。
+                    catalog_unavailable = True
             if not catalog_unavailable and instrument is None:
                 # 目录已就绪但查无此合约（get 仅在 SymbolNotFound 时返回 None）：严格拒绝
                 failed.append({"symbol": raw, "reason": "合约不存在"})
@@ -71,7 +72,7 @@ class SubscriptionManager:
                 if instrument.expire_rest_days is not None and instrument.expire_rest_days <= 1:
                     failed.append({"symbol": raw, "reason": f"合约临近交割（剩余 {instrument.expire_rest_days} 天），拒绝订阅"})
                     continue
-            # 目录未就绪（降级）或有目录记录 → 继续提交订阅
+            # 目录未就绪（跳过本地查询）或有目录记录 → 继续提交订阅
             try:
                 self._client.run_command("subscribe", normalized, timeout=10.0)
             except TqClientError as error:

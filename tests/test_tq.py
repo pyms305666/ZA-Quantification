@@ -16,6 +16,7 @@ class FakeClient:
     """模拟 TqClient 的命令接口。"""
 
     connected = True
+    catalog_ready = True
 
     def __init__(self) -> None:
         self.commands: list[tuple[str, tuple]] = []
@@ -114,6 +115,13 @@ class SubscriptionManagerTests(unittest.TestCase):
         self.assertEqual(result["subscribed"], [])
         self.assertEqual(len(result["failed"]), 1)
         self.assertIn("合约不存在", result["failed"][0]["reason"])
+
+    def test_subscribe_skips_catalog_lookup_until_catalog_is_searchable(self):
+        self.client.catalog_ready = False
+        result = self.manager.subscribe(["SHFE.au2612"])
+        self.assertEqual(result["subscribed"], ["SHFE.au2612"])
+        self.assertEqual(result["failed"], [])
+        self.assertEqual(self.client.commands, [("subscribe", ("SHFE.au2612",))])
 
     def test_unsubscribe(self):
         self.manager.subscribe(["DCE.m2609"])
