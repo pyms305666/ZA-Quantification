@@ -44,15 +44,24 @@ class InstrumentManager:
         self._client = client
         self._lock = threading.Lock()
         self._futures: Optional[list[str]] = None
+        self._cached_complete = False   # _futures 建立时目录是否已完整
         self._info_cache: dict[str, Instrument] = {}
         self._failed_cache: dict[str, float] = {}  # 失败查询的冷却（避免轮询反复触发超时命令）
 
     def futures(self, refresh: bool = False) -> list[str]:
-        """全部期货行情代码（如 ``SHFE.rb2610``），首次从 TqSdk 拉取后缓存。"""
+        """全部期货行情代码（如 ``SHFE.rb2610``），首次从 TqSdk 拉取后缓存。
+
+        v1.1.3 桌面验收发现的缺陷：首查几乎总发生在冷启动、目录还是内置兜底时，
+        若缓存不感知完整性，内置目录会被永久钉死（/status 轮询一直端着 156 条，
+        完整目录下载完成后也不更新，直到重启）。因此缓存记录建立时的完整性，
+        目录转为完整后的首次访问自动重查一次（仅一次，不增加常态开销）。
+        """
         with self._lock:
-            if self._futures is None or refresh:
+            complete = bool(getattr(self._client, "catalog_complete", False))
+            if self._futures is None or refresh or (complete and not self._cached_complete):
                 symbols = self._client.run_command("query_instruments", timeout=30.0)
                 self._futures = symbols
+                self._cached_complete = complete
             return list(self._futures)
 
     def list(self, exchange: str = "", keyword: str = "", refresh: bool = False,

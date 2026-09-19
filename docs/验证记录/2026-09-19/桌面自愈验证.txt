@@ -1,0 +1,23 @@
+[1s] futures_count=156 complete=False progress=内置 260 个合约，完整目录后台下载中
+[11s] futures_count=156 complete=False progress=下载中 0MB
+[51s] futures_count=156 complete=False progress=下载中 1MB
+[101s] futures_count=156 complete=False progress=下载中 2MB
+[151s] futures_count=156 complete=False progress=下载中 3MB
+[191s] futures_count=156 complete=False progress=下载中 4MB
+[231s] futures_count=156 complete=False progress=下载中 5MB
+[271s] futures_count=156 complete=False progress=下载中 6MB
+[311s] futures_count=156 complete=False progress=下载中 7MB
+[351s] futures_count=156 complete=False progress=下载中 8MB
+[401s] futures_count=156 complete=False progress=下载中 9MB
+[441s] futures_count=156 complete=False progress=下载中 10MB
+[481s] futures_count=156 complete=False progress=解析 32000 条
+[491s] futures_count=156 complete=False progress=解析 58000 条
+[501s] futures_count=156 complete=False progress=解析 82000 条
+[511s] futures_count=156 complete=False progress=解析 106000 条
+[521s] futures_count=156 complete=False progress=解析 132000 条
+[531s] futures_count=156 complete=False progress=解析 156000 条
+[541s] futures_count=156 complete=False progress=解析 180000 条
+[551s] futures_count=156 complete=False progress=解析 204000 条
+[561s] futures_count=156 complete=False progress=解析 228000 条
+[571s] futures_count=581 complete=True progress=None
+=== 自愈验证 PASS：无需人工刷新，571s 内 156→581 ===

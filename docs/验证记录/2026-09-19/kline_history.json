@@ -1,0 +1,26 @@
+{
+  "symbol": "SHFE.rb2610",
+  "all_ok": true,
+  "periods": {
+    "1分钟": {
+      "ok": true,
+      "count": 200
+    },
+    "5分钟": {
+      "ok": true,
+      "count": 200
+    },
+    "15分钟": {
+      "ok": true,
+      "count": 200
+    },
+    "60分钟": {
+      "ok": true,
+      "count": 200
+    },
+    "日线": {
+      "ok": true,
+      "count": 200
+    }
+  }
+}

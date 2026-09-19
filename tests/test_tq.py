@@ -100,6 +100,46 @@ class InstrumentManagerTests(unittest.TestCase):
         self.assertTrue(len(results) > 0)
         self.assertEqual(results[0]["name"], "测试品种")
 
+    def test_futures_cache_rebuilds_when_catalog_turns_complete(self):
+        """v1.1.3 桌面验收缺陷：内置目录阶段的首查会把 _futures 永久钉死。
+
+        /status 每次轮询都调 futures()，首查发生在目录未就绪时（内置兜底 156 条），
+        完整目录下载完成后缓存却不更新——桌面端 total 一直 156、搜索漏全量。
+        修复：缓存记录建立时的完整性，目录转为完整后的首次访问自动重查一次。
+        """
+        client = FakeClient()
+        client.catalog_complete = False   # 实例属性遮蔽类属性：模拟内置兜底阶段
+        manager = InstrumentManager(client)
+        partial = CATALOG[:2]
+        original_run = client.run_command
+
+        def scripted_run(command, *args, **kwargs):
+            if command == "query_instruments":
+                client.commands.append((command, args))   # 拦截层自己记账
+                return partial if not client.catalog_complete else CATALOG
+            return original_run(command, *args, **kwargs)
+
+        client.run_command = scripted_run   # type: ignore[assignment]
+        # 目录未就绪阶段首查 → 缓存内置部分
+        self.assertEqual(manager.futures(), partial)
+        # 目录转完整后的下一次访问 → 自动重查，拿到完整目录
+        client.catalog_complete = True
+        self.assertEqual(manager.futures(), CATALOG)
+        # 完整态下的后续访问缓存命中，不再重复查询
+        calls = [c for c in client.commands if c[0] == "query_instruments"]
+        self.assertEqual(len(calls), 2)
+
+    def test_futures_cache_does_not_refresh_while_incomplete(self):
+        # 完整性未变化时不重查：内置阶段的轮询不该每拍都打 query_instruments
+        client = FakeClient()
+        client.catalog_complete = False
+        manager = InstrumentManager(client)
+        manager.futures()
+        manager.futures()
+        manager.futures()
+        calls = [c for c in client.commands if c[0] == "query_instruments"]
+        self.assertEqual(len(calls), 1)
+
 
 class SubscriptionManagerTests(unittest.TestCase):
     def setUp(self) -> None:
