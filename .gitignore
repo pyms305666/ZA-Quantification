@@ -42,3 +42,8 @@ mobile-app/app/build/
 mobile-app/local.properties
 mobile-app/app/src/main/python/__pycache__/
 mobile-app/app/src/main/python/**/__pycache__/
+
+# 签名文件与签名配置（不要提交）
+mobile-app/keystore.properties
+*.keystore
+*.jks

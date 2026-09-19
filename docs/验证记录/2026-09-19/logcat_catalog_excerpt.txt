@@ -1,0 +1,2 @@
+09-19 00:23:35.459 I/python.stdout(  942): [catalog] gzip fast path failed: 合约服务下载失败：HTTPSConnectionPool(host='openmd.shinnytech.com', port=443): Max retries exceeded with url: /t/md/symbols/latest.json (Caused by NameResolutionError("<urllib3.connection.HTTPSConnection object at 0x7b48c1ca60>: Failed to resolve 'openmd.shinnytech.com' ([Errno 7] No address associated with hostname)")); fall back to identity resume
+09-19 00:23:35.461 I/python.stdout(  942): [catalog] identity path: part_offset=0 etag=none

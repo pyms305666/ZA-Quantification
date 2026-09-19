@@ -15,9 +15,10 @@ import os
 import pickle
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 import requests
+import urllib3.exceptions
 
 AUTH_BASE = os.getenv("TQ_AUTH_URL", "https://auth.shinnytech.com")
 NS_URL = "https://api.shinnytech.com/ns"
@@ -181,18 +182,52 @@ def _gz_path() -> Path:
     return _cache_path().with_name("symbol_file.json.gz")
 
 
+def _part_path() -> Path:
+    """identity 续传临时文件（明文 JSON 字节；可中断，下次按 Range 续）。"""
+    return _cache_path().with_name("symbol_file.json.part")
+
+
+def _resume_chunk_size() -> int:
+    return 256 * 1024
+
+
 def download_symbol_file(access_token: str,
                          progress: Optional[Callable[[int, int], None]] = None,
                          on_index_progress: Optional[Callable[[int], None]] = None) -> dict[str, Any]:
-    """拉取合约目录（线上约 334MB JSON），gzip 压缩传输并落盘，再从 gzip 流式解析为精简索引。
+    """拉取合约目录（线上明文约 354MB JSON），双路径下载后流式解析为精简索引。
 
-    为什么 gzip：
-    - 明文 JSON 334MB，服务器支持 gzip，压缩后约 8~11MB → 网络传输量降 ~30 倍；
-    - 落盘只写 .gz（约 11MB），不再把 334MB 明文写进手机闪存；
-    - 用 gzip.open + ijson 边解压边解析，一次遍历，避免"先写 334MB 再读再解析"的磁盘/内存峰值。
+    路径 A（首选）：全量 GET + gzip。服务器压缩后仅 8~11MB，限速下 ~17 秒；
+    落盘 .gz 后用 gzip.open + ijson 边解压边解析，不产生 354MB 中间文件。
 
-    progress(received_bytes, total_bytes) 每下载一个数据块回调（received 为压缩后字节）；
-    on_index_progress(count) 每解析一批条数回调（用于让目录部分就绪/展示进度）。
+    路径 B（续传）：identity + Range 断点续传。服务器实测（2026-09-18）对 Range 请求
+    只返回未压缩字节（gzip 仅在无 Range 的全量 GET 生效），故续传只能基于 identity
+    表示，全量 354MB、限速下约 12 分钟，但可中断续传。状态落盘
+    ``symbol_file.json.part`` + ``.part.etag``：本函数单次调用不做内部重试，
+    上层（DiffClient._load_symbol_file）的 5 次重试每轮经此推进续传进度。
+    .part 已存在时直接走路径 B（说明快路径失败过，避免每轮重复浪费一次 gzip 尝试）。
+
+    progress(received_bytes, total_bytes) 每下载一个数据块回调（路径 A 为压缩后字节，
+    路径 B 为明文字节）；on_index_progress(count) 每解析一批条数回调。
+    """
+    from . import symbol_index
+    if not _part_path().exists():
+        try:
+            return _download_gzip_index(access_token, progress, on_index_progress)
+        except DiffAuthError as error:
+            # 任何失败（网络/HTTP/写盘/gz 损坏）都降级到续传路径
+            print(f"[catalog] gzip fast path failed: {error}; fall back to identity resume",
+                  flush=True)
+    symbols = _download_symbol_file_resume(access_token, progress, on_index_progress)
+    symbol_index.save_index(symbols, _index_path())
+    return symbols
+
+
+def _download_gzip_index(access_token: str,
+                         progress: Optional[Callable[[int, int], None]],
+                         on_index_progress: Optional[Callable[[int], None]]) -> dict[str, Any]:
+    """路径 A：全量 GET + gzip 下载 → gzip 流式解析 → 落盘索引。
+
+    gzip 半成品无法续传，失败即删 .tmp；成功后原子落盘 .gz。
     """
     try:
         # stream=True + 显式 Accept-Encoding: gzip；decode_content=False 拿到压缩字节（不先解压）
@@ -221,20 +256,172 @@ def download_symbol_file(access_token: str,
         tmp.replace(gz_path)   # 原子落盘 gz
         # 再 gzip.open + ijson 流式解析（边解压边逐条，不一次性加载全量）
         from . import symbol_index
-        def _idx_progress(count: int) -> None:
-            if on_index_progress is not None:
-                on_index_progress(count)
-        symbols = symbol_index.index_from_gzip_file(gz_path, progress=_idx_progress)
-        idx_path = _index_path()
-        symbol_index.save_index(symbols, idx_path)
-    except (OSError, ValueError, TypeError) as error:
-        # 捕获 TypeError：避免 stream() 等 API 用错时被当作"下载中"卡住
-        raise DiffAuthError(f"合约文件下载/解析失败：{error}") from error
+        symbols = symbol_index.index_from_gzip_file(gz_path, progress=on_index_progress)
+        symbol_index.save_index(symbols, _index_path())
+    except (OSError, ValueError, TypeError, urllib3.exceptions.HTTPError) as error:
+        # 捕获 TypeError：避免 stream() 等 API 用错时被当作"下载中"卡住；
+        # HTTPError（ProtocolError）不是 OSError 子类——连接中途被重置必须落到这里，才能降级续传
+        raise DiffAuthError(f"合约文件下载失败：{error}") from error
     finally:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+    return symbols
+
+
+def _load_resume_state(part: Path, etag_file: Path) -> tuple[int, str]:
+    """读取续传状态：(.part 字节数, ETag)。缺 ETag 或空文件视为无从续传，从 0 收。"""
+    if not part.exists():
+        return 0, ""
+    size = part.stat().st_size
+    try:
+        etag = etag_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        etag = ""
+    if size <= 0 or not etag:
+        return 0, ""
+    return size, etag
+
+
+def _clear_resume_state(part: Path, etag_file: Path) -> None:
+    for state_file in (part, etag_file):
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _resume_headers(access_token: str, offset: int, etag: str) -> dict:
+    headers = _headers(access_token)
+    # 续传必须基于未压缩字节：实测服务器对 Range 请求不启用 gzip，这里显式钉死 identity
+    headers["Accept-Encoding"] = "identity"
+    if offset > 0:
+        headers["Range"] = f"bytes={offset}-"
+        if etag:
+            # ETag 不匹配时服务器返回 200 全量（语义上等于"目录已更新，从头收"），防字节错位
+            headers["If-Range"] = etag
+    return headers
+
+
+def _parse_content_range(raw: str) -> tuple[Optional[int], int]:
+    """解析 'bytes 123-456/789' → (起点 123, 全量 789)；解析失败 → (None, 0)。"""
+    raw = raw.strip()
+    if not raw.startswith("bytes "):
+        return None, 0
+    body = raw[len("bytes "):]
+    if "/" not in body:
+        return None, 0
+    span, _, total_s = body.rpartition("/")
+    try:
+        total = int(total_s)
+    except ValueError:
+        return None, 0
+    head = span.split("-", 1)
+    if len(head) != 2:
+        return None, total
+    try:
+        return int(head[0]), total
+    except ValueError:
+        return None, total
+
+
+def _total_from_416(response) -> int:
+    """416 响应的 'Content-Range: bytes */TOTAL' → TOTAL（其余形式返回 0）。"""
+    raw = (response.headers.get("content-range") or "").strip()
+    if raw.startswith("bytes */"):
+        try:
+            return int(raw[len("bytes */"):])
+        except ValueError:
+            return 0
+    return 0
+
+
+def _download_symbol_file_resume(access_token: str,
+                                 progress: Optional[Callable[[int, int], None]],
+                                 on_index_progress: Optional[Callable[[int], None]]) -> dict[str, Any]:
+    """路径 B：identity + Range 断点续传（明文 JSON 落盘 .part，完成后解析并清理）。
+
+    分支语义：
+    - 206 → 从本地偏移追加（起点不匹配视为字节错位，清状态报错）；
+    - 200 → If-Range 未命中/目录已更新（或首次全量），丢弃 .part 从头收；
+    - 416 → .part 比远端还大（异常）重收；若 .part 大小恰好等于远端全量，
+      说明上次"下载完、解析前"中断，直接进入解析不再请求。
+    解析失败（字节损坏无法靠续传修复）→ 清状态报错，下轮从 0 重收。
+    """
+    from . import symbol_index
+    part = _part_path()
+    etag_file = Path(str(part) + ".etag")
+    part.parent.mkdir(parents=True, exist_ok=True)
+    offset, etag = _load_resume_state(part, etag_file)
+    print(f"[catalog] identity path: part_offset={offset} etag={'stored' if etag else 'none'}",
+          flush=True)
+    total = 0
+    response = None
+    for attempt in range(2):
+        try:
+            response = requests.get(SYMBOL_FILE_URL, headers=_resume_headers(access_token, offset, etag),
+                                    timeout=(15, 120), stream=True)
+        except requests.RequestException as error:
+            raise DiffAuthError(f"合约服务下载失败：{error}") from error
+        if response.status_code == 416 and attempt == 0:
+            remote_total = _total_from_416(response)
+            size = part.stat().st_size if part.exists() else 0
+            if remote_total and size == remote_total:
+                total = remote_total
+                response = None   # .part 已完整，跳过下载直接解析
+                break
+            offset, etag = 0, ""   # .part 异常 → 丢弃，第二轮全量重收
+            continue
+        break
+    if response is not None and response.status_code not in (200, 206):
+        raise DiffAuthError(f"合约服务下载失败（HTTP {response.status_code}）")
+    if response is not None:
+        encoding = (response.headers.get("content-encoding") or "").strip().lower()
+        if encoding not in ("", "identity"):
+            # 续传字节必须与已落盘的 identity 字节同一表示，否则字节错位
+            raise DiffAuthError(f"合约续传响应带 {encoding} 编码，拒绝续传（服务器行为变化）")
+        if response.status_code == 206:
+            start, total = _parse_content_range(response.headers.get("content-range") or "")
+            if start is not None and start != offset:
+                _clear_resume_state(part, etag_file)
+                raise DiffAuthError("合约续传起点不匹配（服务器返回区间与本地偏移不一致）")
+            mode, received = "ab", offset
+            if progress is not None:
+                progress(offset, total)
+        else:
+            # 200：首次全量或 If-Range 未命中（目录已更新）→ 从头收
+            offset, mode, received = 0, "wb", 0
+            total = int(response.headers.get("content-length") or 0)
+        # ETag 必须在收第一个字节之前落盘：identity 全量约 354MB/限速 ~12 分钟，
+        # 中途断流是常态；若等收完再写，首次中断会丢 ETag，续传只能从头再来
+        new_etag = (response.headers.get("etag") or "").strip()
+        if new_etag:
+            try:
+                etag_file.write_text(new_etag, encoding="utf-8")
+            except OSError:
+                pass
+        try:
+            with part.open(mode) as handle:
+                for chunk in response.raw.stream(amt=_resume_chunk_size(), decode_content=False):
+                    if not chunk:
+                        continue
+                    handle.write(chunk)
+                    received += len(chunk)
+                    if progress is not None:
+                        progress(received, total)
+        except (OSError, ValueError, TypeError, urllib3.exceptions.HTTPError) as error:
+            # HTTPError（ProtocolError）不是 OSError 子类：中途断流后 .part/.etag 必须保留
+            raise DiffAuthError(f"合约文件下载失败：{error}") from error
+    try:
+        symbols = symbol_index.index_from_file(part, progress=on_index_progress)
+    except (OSError, ValueError, TypeError, symbol_index.ijson.JSONError) as error:
+        # JSONError（含 IncompleteJSONError）不是 ValueError 子类，需显式列出
+        _clear_resume_state(part, etag_file)
+        raise DiffAuthError(f"合约文件解析失败：{error}") from error
+    print(f"[catalog] identity download complete: {total} bytes, {len(symbols)} contracts",
+          flush=True)
+    _clear_resume_state(part, etag_file)
     return symbols
 
 

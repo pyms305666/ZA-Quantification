@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
+
+import urllib3.exceptions
 
 from tqdiff import auth as diff_auth
 from tqdiff.client import DiffClient, SymbolNotFoundError, TqClientError
@@ -205,6 +213,254 @@ class SubscriptionLatencyTests(unittest.TestCase):
         client.queue_subscription("SHFE.au2612")
 
         self.assertEqual(client._subscribed, {"SHFE.au2612"})
+
+
+class _FakeRaw:
+    """模拟 requests 响应的 raw 字节流（本模块只用 stream(amt=, decode_content=)）。
+
+    break_after_bytes 模拟连接中途被重置：发出部分字节后抛 urllib3 ProtocolError
+    （该异常不是 OSError 子类，见 download_symbol_file 的捕获说明）。
+    """
+
+    def __init__(self, chunks, break_after_bytes=None):
+        self._chunks = chunks
+        self._break_after = break_after_bytes
+
+    def stream(self, amt=0, decode_content=True):
+        sent = 0
+        for chunk in self._chunks:
+            if self._break_after is not None and sent + len(chunk) > self._break_after:
+                keep = self._break_after - sent
+                if keep > 0:
+                    yield chunk[:keep]
+                raise urllib3.exceptions.ProtocolError("Connection broken: IncompleteRead")
+            sent += len(chunk)
+            yield chunk
+
+
+class _FakeResponse:
+    def __init__(self, status_code, headers, chunks, break_after_bytes=None):
+        self.status_code = status_code
+        self.headers = headers
+        self.raw = _FakeRaw(chunks, break_after_bytes=break_after_bytes)
+
+
+class _FakeCatalogServer:
+    """可编程的 latest.json 假服务器：按脚本顺序响应，并记录每次请求头。"""
+
+    def __init__(self, plain: bytes, etag: str = "W/\"test-etag\""):
+        self.plain = plain
+        self.etag = etag
+        self.gz = gzip.compress(plain)
+        self.total = len(plain)
+        self.requests: list[dict] = []
+        self.script: list = []          # 每项为 callable(request_headers) -> _FakeResponse
+        self.on_exhausted = None        # 脚本耗尽时的兜底（默认报错）
+
+    def get(self, url, headers=None, timeout=None, stream=True):
+        self.requests.append(dict(headers or {}))
+        index = len(self.requests) - 1
+        if index >= len(self.script):
+            if self.on_exhausted is not None:
+                return self.on_exhausted(self.requests[-1])
+            raise AssertionError(f"假服务器脚本耗尽（第 {index + 1} 次请求无响应脚本）")
+        return self.script[index](self.requests[-1])
+
+    # ---- 常用响应脚本 ----
+    def script_gzip_200(self):
+        self.script.append(lambda headers: _FakeResponse(
+            200, {"content-length": str(len(self.gz)),
+                  "content-encoding": "gzip", "etag": self.etag}, [self.gz]))
+
+    def script_gzip_status(self, status):
+        self.script.append(lambda headers: _FakeResponse(status, {}, []))
+
+    def script_identity_200(self):
+        self.script.append(lambda headers: _FakeResponse(
+            200, {"content-length": str(self.total), "etag": self.etag},
+            [self.plain]))
+
+    def script_resume_206(self, offset):
+        tail = self.plain[offset:]
+        self.script.append(lambda headers: _FakeResponse(
+            206, {"content-range": f"bytes {offset}-{self.total - 1}/{self.total}",
+                  "etag": self.etag}, [tail]))
+
+    def script_gzip_break_midstream(self, after_bytes):
+        self.script.append(lambda headers: _FakeResponse(
+            200, {"content-length": str(len(self.gz)),
+                  "content-encoding": "gzip", "etag": self.etag},
+            [self.gz], break_after_bytes=after_bytes))
+
+    def script_identity_break_midstream(self, after_bytes):
+        self.script.append(lambda headers: _FakeResponse(
+            200, {"content-length": str(self.total), "etag": self.etag},
+            [self.plain], break_after_bytes=after_bytes))
+
+
+class DownloadSymbolFileTests(unittest.TestCase):
+    """download_symbol_file 双路径（gzip 快路径 + identity Range 续传）。"""
+
+    PLAIN = json.dumps({
+        "SHFE.rb2610": {"class": "FUTURE", "instrument_id": "SHFE.rb2610",
+                        "exchange_id": "SHFE", "ins_name": "螺纹钢2610",
+                        "price_tick": 1.0, "volume_multiple": 10, "expired": False},
+        "DCE.m2609": {"class": "FUTURE", "instrument_id": "DCE.m2609",
+                      "exchange_id": "DCE", "ins_name": "豆粕2609",
+                      "price_tick": 1.0, "volume_multiple": 10, "expired": False},
+    }).encode("utf-8")
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp(prefix="za-test-cache-")
+        self._old_cache = os.environ.get("TQ_GATEWAY_CACHE")
+        os.environ["TQ_GATEWAY_CACHE"] = self._tmp
+        self.server = _FakeCatalogServer(self.PLAIN)
+        patcher = mock.patch("tqdiff.auth.requests.get", self.server.get)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        if self._old_cache is None:
+            os.environ.pop("TQ_GATEWAY_CACHE", None)
+        else:
+            os.environ["TQ_GATEWAY_CACHE"] = self._old_cache
+
+    def _part(self) -> Path:
+        return diff_auth._part_path()
+
+    def _etag_file(self) -> Path:
+        return Path(str(self._part()) + ".etag")
+
+    def _seed_part(self, data: bytes, etag: str = "W/\"test-etag\""):
+        part = self._part()
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.write_bytes(data)
+        self._etag_file().write_text(etag, encoding="utf-8")
+
+    def test_gzip_fast_path_downloads_and_parses(self):
+        self.server.script_gzip_200()
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 1)
+        # 快路径不产生续传状态文件
+        self.assertFalse(self._part().exists())
+        self.assertFalse(self._etag_file().exists())
+
+    def test_no_part_falls_back_to_resume_after_gzip_failure(self):
+        self.server.script_gzip_status(500)
+        self.server.script_identity_200()
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 2)
+        # 第一次走 gzip 快路径，第二次续传路径请求 identity
+        self.assertEqual(self.server.requests[0].get("Accept-Encoding"), "gzip")
+        self.assertEqual(self.server.requests[1].get("Accept-Encoding"), "identity")
+        self.assertNotIn("Range", self.server.requests[1])
+
+    def test_resume_appends_tail_from_206(self):
+        offset = len(self.PLAIN) // 2
+        self._seed_part(self.PLAIN[:offset])
+        self.server.script_resume_206(offset)
+        progress_log = []
+        symbols = diff_auth.download_symbol_file(
+            "tok", progress=lambda done, total: progress_log.append((done, total)))
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        request = self.server.requests[0]
+        self.assertEqual(request.get("Range"), f"bytes={offset}-")
+        self.assertEqual(request.get("If-Range"), "W/\"test-etag\"")
+        self.assertEqual(request.get("Accept-Encoding"), "identity")
+        # 首个进度点是断点处，末点是全量
+        self.assertEqual(progress_log[0], (offset, len(self.PLAIN)))
+        self.assertEqual(progress_log[-1], (len(self.PLAIN), len(self.PLAIN)))
+        # 成功后清理续传状态
+        self.assertFalse(self._part().exists())
+        self.assertFalse(self._etag_file().exists())
+
+    def test_resume_restarts_from_200_on_etag_mismatch(self):
+        self._seed_part(self.PLAIN[:100], etag="W/\"stale\"")
+        self.server.etag = "W/\"new-etag\""
+        self.server.script_identity_200()
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        request = self.server.requests[0]
+        self.assertEqual(request.get("Range"), "bytes=100-")
+        self.assertEqual(request.get("If-Range"), "W/\"stale\"")
+        # 200 全量应整体重写 .part（若错误追加，JSON 拼接必然解析失败）
+        self.assertFalse(self._part().exists())
+
+    def test_resume_416_resets_and_restarts(self):
+        self._seed_part(self.PLAIN[:100])
+        # 远端全量 100 与 .part 大小不符 → 416 重置后全量重收
+        self.server.script.append(lambda headers: _FakeResponse(
+            416, {"content-range": f"bytes */{self.server.total + 50}"}, []))
+        self.server.script_identity_200()
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 2)
+        self.assertIn("Range", self.server.requests[0])
+        self.assertNotIn("Range", self.server.requests[1])
+
+    def test_resume_416_with_complete_part_parses_without_more_download(self):
+        self._seed_part(self.PLAIN)   # .part 与远端全量等大：上次"下完没解析"中断
+        self.server.script.append(lambda headers: _FakeResponse(
+            416, {"content-range": f"bytes */{self.server.total}"}, []))
+        self.server.on_exhausted = lambda headers: (_ for _ in ()).throw(
+            AssertionError("文件已完整时不应再发起下载"))
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 1)
+        self.assertFalse(self._part().exists())
+
+    def test_parse_failure_clears_part_state(self):
+        garbage = b"not-json{{{"
+        self._seed_part(garbage)
+        self.server.script.append(lambda headers: _FakeResponse(
+            416, {"content-range": f"bytes */{len(garbage)}"}, []))
+        with self.assertRaises(diff_auth.DiffAuthError):
+            diff_auth.download_symbol_file("tok")
+        # 损坏文件无法靠续传修复 → 状态清理，下轮从 0 重收
+        self.assertFalse(self._part().exists())
+        self.assertFalse(self._etag_file().exists())
+
+    def test_midstream_reset_falls_back_to_identity(self):
+        # gzip 全量传到一半连接被重置（ProtocolError 非 OSError）→ 必须降级续传而不是直接失败
+        self.server.script_gzip_break_midstream(len(self.server.gz) // 2)
+        self.server.script_identity_200()
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 2)
+
+    def test_identity_break_keeps_state_then_resumes(self):
+        # 首次 identity 传输中断：.part 保留已收字节，ETag 已先于收流落盘 → 下次 206 续传
+        offset = len(self.PLAIN) // 3
+        self.server.script_gzip_status(500)   # 无 .part 时先走 gzip 快路径，让其快速失败
+        self.server.script_identity_break_midstream(offset)
+        with self.assertRaises(diff_auth.DiffAuthError):
+            diff_auth.download_symbol_file("tok")
+        self.assertTrue(self._part().exists())
+        self.assertEqual(self._part().stat().st_size, offset)
+        self.assertEqual(self._etag_file().read_text(encoding="utf-8").strip(),
+                         "W/\"test-etag\"")
+        # 第二次调用：从断点 206 续传到完成（请求序：gzip500 → identity中断 → 206续传）
+        self.server.script_resume_206(offset)
+        symbols = diff_auth.download_symbol_file("tok")
+        self.assertEqual(set(symbols), {"SHFE.rb2610", "DCE.m2609"})
+        self.assertEqual(len(self.server.requests), 3)
+        request = self.server.requests[2]
+        self.assertEqual(request.get("Range"), f"bytes={offset}-")
+        self.assertEqual(request.get("If-Range"), "W/\"test-etag\"")
+        self.assertFalse(self._part().exists())
+
+    def test_index_from_file_matches_gzip_path(self):
+        from tqdiff import symbol_index
+        plain_path = Path(self._tmp) / "plain.json"
+        gz_path = Path(self._tmp) / "plain.json.gz"
+        plain_path.write_bytes(self.PLAIN)
+        gz_path.write_bytes(gzip.compress(self.PLAIN))
+        from_file = symbol_index.index_from_file(plain_path)
+        from_gzip = symbol_index.index_from_gzip_file(gz_path)
+        self.assertEqual(from_file.keys(), from_gzip.keys())
+        self.assertEqual(from_file["SHFE.rb2610"], from_gzip["SHFE.rb2610"])
 
 
 if __name__ == "__main__":

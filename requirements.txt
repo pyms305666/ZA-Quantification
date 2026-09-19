@@ -4,3 +4,5 @@ requests>=2.31
 fastapi>=0.110
 uvicorn>=0.29
 ijson==3.2.3
+# 桌面端凭据安全存储（Windows 凭据管理器）；手机端 Chaquopy 不装（其 config.py 不引用）
+keyring==25.6.0

@@ -1,0 +1,7 @@
+== 真实服务器续传契约验证（2026-09-20 12:35） ==
+请求: GET latest.json  Accept-Encoding: identity  Range: bytes=4096-  If-Range: <探针预置ETag>
+HTTP/1.1 206 Partial Content
+Accept-Ranges: bytes
+Access-Control-Expose-Headers: Content-Range
+
+结论: 206 Partial Content——探针同款 ETag 下断点续传请求被服务器接受

@@ -22,11 +22,23 @@ cd mobile-app
 #   sdk.dir=E:/android-sdk
 ./gradlew --no-daemon assembleDebug          # 干净机器：wrapper 自动下载 Gradle 8.9
 # 产物：app/build/outputs/apk/debug/app-debug.apk
-# 交付：复制为 dist/ZA量化-手机版-v1.1.1.apk 并记录 SHA-256
+# 交付：复制为 dist/ZA量化-手机版-v1.1.3.apk 并记录 SHA-256
 ```
 
 > 本机若无外网下载 Gradle 发行版，可直接用本地已装 Gradle：
 > `E:/tools/gradle-8.2/bin/gradle.bat --no-daemon assembleDebug`
+
+## release 签名（V1.1.3 起）
+
+- 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
+  （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。
+  文件缺失时 release 构建自动回退 debug 签名，clone 后仍可直接出包。
+- keystore 与密码**离线备份**（密码在 `keystore.properties`）。丢失后无法再对已发布应用出升级包。
+- 验签：`E:/android-sdk/build-tools/34.0.0/apksigner.bat verify --print-certs <apk>`，
+  证书 SHA-256 应为 `f9e19c0c2c435a37c801b6876f20943d81350d8f42585077d2dd473e448d037d`。
+- **签名变更不能覆盖安装**：从 debug 包升级到 release 包必须先卸载（会清 App 数据）；
+  此后所有升级必须用同一 keystore 签名。
+- minify 保持 `false`：Chaquopy 的 Python/Java 桥接在混淆下风险高，无混淆需求。
 
 ## 已知构建警告（已核实、可接受）
 

@@ -2,9 +2,11 @@
 
 加载顺序（后者覆盖前者）：
   1. ``config.json``（可从 ``config.json.example`` 复制，路径可用环境变量 TQ_GATEWAY_CONFIG 指定）
-  2. 本地凭据存储 ``.tqsdk/credentials.json``（前端登录界面保存，保存一次后自动复用；
-     该目录已被 .gitignore 排除，凭据不进仓库。注意：本机文件为明文，请保管好设备与目录权限）
-  3. 环境变量 ``TQ_ACCOUNT`` / ``TQ_PASSWORD``（优先级最高）
+  2. 本地凭据存储：优先 **Windows 凭据管理器**（keyring，服务名 ``ZAQuant``），
+     本地文件 ``.tqsdk/credentials.json`` 只存账号（供登录页回显与定位凭据管理器条目）；
+     旧版明文密码文件在首次读取时自动迁移进凭据管理器并清除明文。
+     设置环境变量 ``TQ_GATEWAY_KEYRING=off`` 可强制退回明文文件存储（旧行为）。
+  3. 环境变量 ``TQ_ACCOUNT`` / ``TQ_PASSWORD``（优先级最高，避免密码落任何文件）
 
 天勤账号（手机号 + 密码）在 https://www.tqsdk.com 注册，免费。
 """
@@ -15,6 +17,13 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+try:
+    import keyring   # 桌面端可选依赖（requirements.txt）；缺失时退回明文文件存储
+except ImportError:  # pragma: no cover - 手机端/极简环境无 keyring
+    keyring = None
+
+KEYRING_SERVICE = "ZAQuant"
 
 
 @dataclass
@@ -59,24 +68,70 @@ def _default_config_path() -> Path:
 
 
 def _credentials_path() -> Path:
-    """本地凭据存储路径（git 已忽略 .tqsdk/）。"""
+    """本地凭据文件路径（git 已忽略 .tqsdk/）。文件只存账号；密码在系统凭据管理器。"""
     return Path(os.environ.get("TQ_GATEWAY_CREDENTIALS", ".tqsdk/credentials.json"))
 
 
+def _keyring_enabled() -> bool:
+    """keyring 可用且未被 TQ_GATEWAY_KEYRING=off 显式关闭。"""
+    if str(os.environ.get("TQ_GATEWAY_KEYRING", "")).strip().lower() == "off":
+        return False
+    return keyring is not None
+
+
 def load_saved_credentials() -> tuple[str, str]:
-    """读取本地保存的天勤凭据；无文件或解析失败返回空串。"""
+    """读取本地保存的天勤凭据。
+
+    顺序：凭据管理器（按文件中的账号定位）→ 旧版明文文件（读后自动迁移并清除明文）。
+    无凭据或解析失败返回空串。
+    """
     path = _credentials_path()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return str(data.get("account", "")).strip(), str(data.get("password", ""))
     except (OSError, ValueError):
         return "", ""
+    if not isinstance(data, dict):
+        return "", ""
+    account = str(data.get("account", "")).strip()
+    stored_password = str(data.get("password", ""))
+    if _keyring_enabled() and account:
+        try:
+            vault_password = keyring.get_password(KEYRING_SERVICE, account)
+        except Exception:
+            vault_password = None   # 凭据管理器不可用（如无 UI 会话），退回文件
+        if vault_password:
+            return account, vault_password
+    if stored_password:
+        if _keyring_enabled() and account:
+            # 旧版明文一次性迁移：写入凭据管理器，文件只留账号
+            try:
+                keyring.set_password(KEYRING_SERVICE, account, stored_password)
+                path.write_text(
+                    json.dumps({"account": account}, ensure_ascii=False),
+                    encoding="utf-8")
+            except Exception:
+                pass   # 迁移失败保持旧明文不动，下次再试
+        return account, stored_password
+    return account, ""
 
 
 def save_credentials(account: str, password: str) -> Path:
-    """保存天勤凭据到本地（登录界面"保存并连接"时调用）。"""
+    """保存天勤凭据（登录界面"保存并连接"时调用）。
+
+    keyring 可用：密码进系统凭据管理器，文件只留账号（不再落明文密码）。
+    keyring 不可用（未安装 / TQ_GATEWAY_KEYRING=off / 写入异常）：退回旧版明文文件存储。
+    """
     path = _credentials_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    if _keyring_enabled() and account:
+        try:
+            keyring.set_password(KEYRING_SERVICE, account.strip(), password)
+            path.write_text(
+                json.dumps({"account": account.strip()}, ensure_ascii=False),
+                encoding="utf-8")
+            return path
+        except Exception:
+            pass   # 凭据管理器写入失败（无 UI 会话等）→ 退回明文文件
     path.write_text(
         json.dumps({"account": account.strip(), "password": password}, ensure_ascii=False),
         encoding="utf-8")
