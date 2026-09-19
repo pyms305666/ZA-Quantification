@@ -2,9 +2,14 @@
 "use strict";
 
 /* ---------- 状态 ---------- */
+const KLINE_PERIODS = [
+  { p: 60, label: "1 分钟" }, { p: 300, label: "5 分钟" }, { p: 900, label: "15 分钟" },
+  { p: 1800, label: "30 分钟" }, { p: 3600, label: "60 分钟" }, { p: 86400, label: "日线" },
+];
 const state = {
   symbol: "SHFE.rb2610",
-  period: 300,
+  period: KLINE_PERIODS.some(x => x.p === Number(localStorage.getItem("klinePeriod")))
+    ? Number(localStorage.getItem("klinePeriod")) : 300,
   kline: [],
   quote: null,
   decision: null,
@@ -481,15 +486,33 @@ async function logout() {
   loadStatus();
 }
 
+/* ---------- K线默认周期（"我的"页设置，localStorage 持久化） ---------- */
+function periodLabel(p) {
+  return (KLINE_PERIODS.find(x => x.p === p) || KLINE_PERIODS[1]).label;
+}
+function syncPeriodUi() {
+  $("me-period").textContent = periodLabel(state.period) + " ›";
+  document.querySelectorAll("#ptabs button").forEach(x =>
+    x.classList.toggle("active", Number(x.dataset.p) === state.period));
+}
+function setPeriod(p) {
+  if (!KLINE_PERIODS.some(x => x.p === p)) return;
+  state.period = p;
+  localStorage.setItem("klinePeriod", String(p));
+  syncPeriodUi();
+  if (state.screen === "kline") loadKline();
+}
+function closeHelpSheet() {
+  $("sheet-mask").classList.add("hidden");
+  $("sheet-help").classList.add("hidden");
+}
+
 /* ---------- 事件绑定 ---------- */
 document.querySelectorAll("#tabbar .tab").forEach(t =>
   t.addEventListener("click", () => showScreen(t.dataset.s)));
 $("ptabs").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
-  document.querySelectorAll("#ptabs button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active");
-  state.period = Number(b.dataset.p);
-  loadKline();
+  setPeriod(Number(b.dataset.p));
 });
 $("btn-dc").addEventListener("click", () => {
   $("dc-quick").classList.toggle("hidden");
@@ -503,6 +526,17 @@ $("search").addEventListener("input", () => {
 $("login-save").addEventListener("click", saveLogin);
 $("login-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
 $("logout").addEventListener("click", logout);
+/* "我的"页：K线默认周期（点按循环切换并持久化）与使用说明浮层 */
+$("me-period").addEventListener("click", () => {
+  const idx = KLINE_PERIODS.findIndex(x => x.p === state.period);
+  setPeriod(KLINE_PERIODS[(idx + 1) % KLINE_PERIODS.length].p);
+});
+$("me-help").addEventListener("click", () => {
+  $("sheet-mask").classList.remove("hidden");
+  $("sheet-help").classList.remove("hidden");
+});
+$("sheet-close").addEventListener("click", closeHelpSheet);
+$("sheet-mask").addEventListener("click", closeHelpSheet);
 document.querySelector("#screen-login .hint .cyan").addEventListener("click",
   () => window.open("https://www.tqsdk.com", "_blank"));
 window.addEventListener("resize", () => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); });
@@ -513,6 +547,7 @@ window.addEventListener("resize", () => { state.chart && state.chart.resize(); s
     ' appMainVisible=' + (document.getElementById('app-main') ? 'yes' : 'no'));
   initCharts();
   renderWatchlist();
+  syncPeriodUi();
   showScreen("quotes");
   // 未配置凭据时 checkAuth 会弹出登录层并盖在 app-main 之上；
   // 无论是否配置都显示主界面骨架，让状态条/路由信息可见（登录层保留在未配置时覆盖）。
