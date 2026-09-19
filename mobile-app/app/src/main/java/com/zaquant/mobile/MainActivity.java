@@ -20,6 +20,14 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
+/**
+ * App 主界面：全屏 WebView 加载本机 Python 后端的 Web UI。
+ *
+ * 职责链：申请通知权限（Android 13+，前台服务通知可见性）→ 启动前台服务
+ * BackendService（缺陷 B 锁屏保活，Python 后端在其 onCreate 内启动）→
+ * 引导一次"电池优化白名单"授权 → waitAndLoad 轮询后端就绪后加载页面。
+ * Activity 自身不启动 Python——后端生命周期完全归前台服务管。
+ */
 public class MainActivity extends Activity {
     private WebView web;
 
@@ -58,6 +66,13 @@ public class MainActivity extends Activity {
         waitAndLoad();
     }
 
+    /**
+     * 引导用户把本 App 加入"电池优化白名单"（仅弹一次，SharedPreferences 记录）。
+     *
+     * vivo 等厂商对后台进程冻结激进，前台服务 + WakeLock 之外再拿电池白名单
+     * 才能保证锁屏后行情持续接收（缺陷 B 的最后一层保障）。
+     * 厂商未提供授权页时静默跳过（ActivityNotFoundException）。
+     */
     private void requestBatteryOptimizationExemptionOnce() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return;
@@ -82,6 +97,11 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 后台线程轮询后端 /api/v1/status（每秒一次、最多 90 秒），
+     * 返回 200 才让 WebView 加载真实页面；超时展示"启动失败"提示。
+     * 就绪前先加载"启动中…"占位页，避免白屏。
+     */
     private void waitAndLoad() {
         new Thread(() -> {
             for (int i = 0; i < 90; i++) {

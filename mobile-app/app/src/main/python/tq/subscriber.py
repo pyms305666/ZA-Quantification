@@ -20,6 +20,12 @@ from .instruments import InstrumentManager, normalize_symbol
 
 class SubscriptionManager:
     def __init__(self, client: TqClient, instruments: InstrumentManager) -> None:
+        """订阅管理器：前端 WS 的订阅请求统一经这里进入客户端命令层。
+
+        Args:
+            client: 行情客户端（提交 subscribe/unsubscribe 命令）。
+            instruments: 合约管理器（订阅前校验存在性/过期/临近交割）。
+        """
         self._client = client
         self._instruments = instruments
         self._subscribed: dict[str, str] = {}  # 原始写法 -> 归一化代码
@@ -29,7 +35,24 @@ class SubscriptionManager:
         self._pending: set[str] = set()
 
     def subscribe(self, symbols: list[str]) -> dict:
-        """批量订阅。返回 ``{subscribed, skipped, failed}``，failed 每项含原因。"""
+        """批量订阅合约，逐只校验并分流，全程幂等（重复订阅静默跳过）。
+
+        每只合约的判定链：
+        1. 未连接 → 记入 pending（重连后 on_connected 自动重放），报"已挂起"；
+        2. 代码无法规范化 → failed；
+        3. 已订阅/批内重复 → skipped；
+        4. 目录已完整且查无此合约 → failed"合约不存在"（严格拒绝）；
+        5. 已过期 / 剩余 ≤1 天（临近交割）→ failed；
+        6. 目录不完整 → queue_subscription 异步排队（不阻塞 HTTP）；
+        7. 其余 → 正常提交订阅命令。
+
+        Args:
+            symbols: 任意写法的合约代码列表（可混合大小写/有无前缀）。
+
+        Returns:
+            {"subscribed": [规范化代码], "skipped": [规范化代码],
+             "failed": [{"symbol": 原始输入, "reason": 原因}]}
+        """
         if not self._client.connected:
             # 缺陷 A：未连接时不再"整批拒绝即丢"，先记入 pending，连接建立后由
             # on_connected 自动重放（见 on_connected）。
@@ -90,6 +113,14 @@ class SubscriptionManager:
         return {"subscribed": subscribed, "skipped": skipped, "failed": failed}
 
     def unsubscribe(self, symbols: list[str]) -> dict:
+        """批量退订：支持原始写法或规范化代码两种输入，幂等。
+
+        Args:
+            symbols: 要退订的合约代码列表。
+
+        Returns:
+            {"unsubscribed": [规范化代码], "missing": [未识别/退订失败的原始输入]}
+        """
         unsubscribed: list[str] = []
         missing: list[str] = []
         for raw in symbols or []:
@@ -107,6 +138,7 @@ class SubscriptionManager:
         return {"unsubscribed": unsubscribed, "missing": missing}
 
     def subscribed(self) -> list[str]:
+        """当前全部已订阅合约的规范化代码（去重排序）。"""
         return sorted(set(self._subscribed.values()))
 
     def on_connected(self) -> None:
@@ -122,6 +154,7 @@ class SubscriptionManager:
             self.subscribe(pending)
 
     def _normalize_known(self, raw: str) -> Optional[str]:
+        """退订用：优先按订阅表反查规范化代码（避免重新走可能失败的目录查询）。"""
         normalized = self._subscribed.get(raw)
         if normalized is not None:
             return normalized

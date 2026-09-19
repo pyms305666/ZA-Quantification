@@ -81,9 +81,16 @@ def is_useful_future(symbol: str, record: dict[str, Any]) -> bool:
 
 
 def iter_records_from_file(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
-    """用 ijson 流式解析 latest.json，逐条 yield (symbol, 精简 record)。
+    """用 ijson 流式解析明文 latest.json，逐条 yield (symbol, 精简 record)。
 
-    逐条解析，内存恒定；不把整份 JSON 读过内存。
+    逐条解析，内存恒定；不把整份 JSON 读过内存（断点续传路径的产物就是明文
+    文件，走这里解析）。无效条目（parse_record 返回 None）被静默跳过。
+
+    Args:
+        path: 明文 JSON 文件路径（约 354MB，ijson 逐 token 读取不会整体载入）。
+
+    Yields:
+        (合约完整代码, 精简 record) 二元组，顺序即文件顺序。
     """
     with path.open("rb") as handle:
         # kvitems 流式迭代顶层键值对
@@ -116,7 +123,8 @@ def index_from_file(path: Path,
 def iter_records_from_gzip(path: Path) -> Iterator[tuple[str, dict[str, Any]]]:
     """用 ijson 从 gzip 压缩的 latest.json 流式解析，逐条 yield (symbol, 精简 record)。
 
-    用 gzip.open 边解压边喂给 kvitems，不把解压后的 334MB 明文档读进内存/磁盘。
+    用 gzip.open 边解压边喂给 kvitems，不把解压后的 334MB 明文档读进内存/磁盘
+    （gzip 快路径的首选解析入口；手机端闪存与内存都按最低峰值设计）。
     """
     with gzip.open(path, "rb") as handle:
         for symbol, entry in ijson.kvitems(handle, ""):
@@ -143,7 +151,16 @@ def index_from_gzip_file(path: Path,
     return result
 
 def save_index(index: dict[str, dict[str, Any]], path: Path, downloaded_at: Optional[float] = None) -> None:
-    """把精简 record dict 用 pickle 落盘（含下载时间戳），二次打开秒级加载。"""
+    """把精简 record dict 用 pickle 落盘（含下载时间戳），二次打开秒级加载。
+
+    pickle 体积约 25MB（24 万条），反序列化远快于重新解析 354MB JSON；
+    时间戳供 load_index 做 TTL 判定。
+
+    Args:
+        index: 精简 record 字典（symbol → record）。
+        path: 目标 pickle 路径（父目录不存在会自动创建）。
+        downloaded_at: 下载完成时间戳；缺省取当前时间。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"_downloaded_at": downloaded_at if downloaded_at is not None else time.time(),
                "index": index}
@@ -152,7 +169,16 @@ def save_index(index: dict[str, dict[str, Any]], path: Path, downloaded_at: Opti
 
 
 def load_index(path: Path, max_age: float) -> Optional[dict[str, dict[str, Any]]]:
-    """读取 pickle 索引；未到有效期返回 dict，否则 None。兼容旧的"整段 JSON"缓存为 None。"""
+    """读取 pickle 索引，做过期判定；任何异常/过期/格式不符都返回 None（安全降级）。
+
+    Args:
+        path: pickle 索引路径。
+        max_age: 有效期（秒），与文件内 _downloaded_at 比较判定过期。
+
+    Returns:
+        未过期 → 精简 record 字典；文件不存在/损坏/过期/非本格式 → None
+        （调用方据此走"内置表兜底 + 后台重下载"）。
+    """
     if not path.exists():
         return None
     try:

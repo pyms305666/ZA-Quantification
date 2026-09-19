@@ -12,14 +12,24 @@ Number = float
 
 
 def sma(values: Sequence[Number], period: int) -> Optional[Number]:
-    """简单移动平均（最新值）。"""
+    """简单移动平均（最新值）。
+
+    Args: values: 数值序列（时间升序）。 period: 窗口长度。
+    Returns: 最近 period 根的算术平均；数据不足或 period 非法返回 None。
+    """
     if len(values) < period or period <= 0:
         return None
     return sum(values[-period:]) / period
 
 
 def ema(values: Sequence[Number], period: int) -> Optional[Number]:
-    """指数移动平均（最新值）：首个值用前 period 根的平均做种子。"""
+    """指数移动平均（最新值）：首个值用前 period 根的平均做种子。
+
+    递推式 EMA(t) = EMA(t-1) + k×(close - EMA(t-1))，k = 2/(period+1)；
+    与主流行情软件一致。
+
+    Returns: 最新 EMA；数据不足或 period 非法返回 None。
+    """
     if len(values) < period or period <= 0:
         return None
     seed = sum(values[:period]) / period
@@ -31,7 +41,11 @@ def ema(values: Sequence[Number], period: int) -> Optional[Number]:
 
 
 def macd(closes: Sequence[Number], fast: int = 12, slow: int = 26, signal: int = 9):
-    """MACD：返回 (DIF, DEA, 柱) 三个最新值；数据不足返回 (None, None, None)。"""
+    """MACD：快慢 EMA 差值体系（参数 12/26/9）。
+
+    Returns: (DIF=快EMA-慢EMA, DEA=DIF 的 signal 期 EMA, 柱=(DIF-DEA)×2)；
+    序列长度不足 slow+signal 时返回 (None, None, None)。
+    """
     if len(closes) < slow + signal:
         return None, None, None
     dif_list: list[float] = []
@@ -63,7 +77,11 @@ def macd(closes: Sequence[Number], fast: int = 12, slow: int = 26, signal: int =
 
 
 def rsi(closes: Sequence[Number], period: int = 14) -> Optional[Number]:
-    """RSI（Wilder 平滑）：最新值 0-100。"""
+    """RSI 相对强弱指数（Wilder 平滑，非简单均值）。
+
+    Returns: 最新 RSI（0-100，>70 超买 / <30 超卖）；平均亏损为 0 时返回 100；
+    数据不足返回 None。
+    """
     if len(closes) < period + 1:
         return None
     gains: list[float] = []
@@ -84,7 +102,10 @@ def rsi(closes: Sequence[Number], period: int = 14) -> Optional[Number]:
 
 def kdj(highs: Sequence[Number], lows: Sequence[Number], closes: Sequence[Number],
         n: int = 9, k_period: int = 3, d_period: int = 3):
-    """KDJ：返回 (K, D, J) 最新值；数据不足返回 (None, None, None)。"""
+    """KDJ 随机指标（9,3,3）：K/D 为 RSV 的两级平滑，J=3K-2D。
+
+    Returns: (K, D, J) 最新值；数据不足返回 (None, None, None)。
+    """
     if len(closes) < n + k_period + d_period - 2:
         return None, None, None
     k_value = 50.0
@@ -101,7 +122,10 @@ def kdj(highs: Sequence[Number], lows: Sequence[Number], closes: Sequence[Number
 
 
 def boll(closes: Sequence[Number], period: int = 20, width: float = 2.0):
-    """布林带：返回 (中轨, 上轨, 下轨)。"""
+    """布林带：中轨为 SMA(period)，上下轨为中轨 ± width 倍标准差。
+
+    Returns: (中轨, 上轨, 下轨)；中轨不可得时返回 (None, None, None)。
+    """
     mid = sma(closes, period)
     if mid is None:
         return None, None, None
@@ -113,7 +137,11 @@ def boll(closes: Sequence[Number], period: int = 20, width: float = 2.0):
 
 def atr(highs: Sequence[Number], lows: Sequence[Number], closes: Sequence[Number],
         period: int = 14) -> Optional[Number]:
-    """ATR（Wilder 平滑）：最新值。"""
+    """ATR 平均真实波幅（Wilder 平滑）：衡量波动水平，用于止损距离计算。
+
+    真实波幅 = max(当根高低差, |最高-前收|, |最低-前收|)。
+    Returns: 最新 ATR；数据不足返回 None。
+    """
     if len(closes) < period + 1:
         return None
     ranges: list[float] = []

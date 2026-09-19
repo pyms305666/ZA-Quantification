@@ -16,14 +16,17 @@ class QuoteCache:
         self._lock = threading.Lock()
 
     def set(self, quote: MarketQuote) -> None:
+        """写入/覆盖一只合约的最新快照（行情回调线程调用，高频）。"""
         with self._lock:
             self._data[quote.symbol] = quote
 
     def get(self, symbol: str) -> Optional[MarketQuote]:
+        """读取一只合约的最新快照；从未订阅/未收到行情返回 None。"""
         with self._lock:
             return self._data.get(symbol)
 
     def all(self) -> list[MarketQuote]:
+        """返回全部缓存快照的列表副本（供状态统计与调试接口）。"""
         with self._lock:
             return list(self._data.values())
 

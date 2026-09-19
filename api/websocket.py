@@ -36,12 +36,14 @@ class ConnectionManager:
         self._empty_since: Optional[float] = time.monotonic()   # 进程启动时就没有连接
 
     async def connect(self, websocket: WebSocket) -> None:
+        """接受一条 WS 连接并登记（空连接计时清零，自动退出保险停表）。"""
         await websocket.accept()
         async with self._lock:
             self._connections.add(websocket)
             self._empty_since = None                # 有连接了，清空计时
 
     async def disconnect(self, websocket: WebSocket) -> None:
+        """移除一条连接；若是最后一个客户端，开始记录空连接起始时刻。"""
         async with self._lock:
             self._connections.discard(websocket)
             if not self._connections and self._empty_since is None:
@@ -64,6 +66,10 @@ class ConnectionManager:
         return len(self._connections)
 
     async def broadcast_quote(self, quote: MarketQuote) -> None:
+        """向所有在线客户端推送一条行情快照；推送失败的连接立即摘除。
+
+        ts 为服务端发送时刻（Unix 秒）——前端用它计算端到端延迟（P0-200ms 埋点）。
+        """
         # ts：服务端发送时刻（Unix 秒）——前端用它计算端到端延迟（P0-200ms 埋点）
         payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
                    "ts": time.time()}
@@ -81,6 +87,12 @@ def create_ws_router(services: "Services") -> APIRouter:
 
     @router.websocket("/ws/market")
     async def market(websocket: WebSocket) -> None:
+        """行情 WS 端点：处理 subscribe/unsubscribe/ping 三种动作直到断开。
+
+        订阅动作经 asyncio.to_thread 进订阅管理器（内部可能查目录/提交命令，
+        阻塞操作不占事件循环）；订阅成功后补发缓存快照，保证休市时段
+        页面也能立刻见到行情。
+        """
         await services.connections.connect(websocket)
         await websocket.send_json({
             "type": "hello",

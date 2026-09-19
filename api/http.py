@@ -52,6 +52,16 @@ class SubscribeRequest(BaseModel):
 
 
 def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> FastAPI:
+    """创建 FastAPI 应用：装配服务、注册路由/异常映射/静态目录/生命周期。
+
+    Args:
+        config: 已加载的网关配置（含天勤凭据与风险参数）。
+        auto_exit_idle_seconds: 无浏览器连接自动退出阈值；None = 不启用
+            （launcher 常驻模式不启用，调试模式启用以免遗留进程占端口）。
+
+    Returns:
+        配置完成的 FastAPI 实例（服务集合挂在其 .state.services 上）。
+    """
     services = build_services(config)
     services.auto_exit_idle_seconds = auto_exit_idle_seconds
     app = FastAPI(title="国内期货行情网关", version="0.2.0", lifespan=_lifespan(services))
@@ -66,12 +76,14 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
         return request.app.state.services
 
     def require_connected(services: Services) -> None:
+        """行情类接口的公共前置校验：未连接/初始化中一律 503 拒绝。"""
         if not services.client.connected:
             raise HTTPException(status_code=503, detail="天勤未连接")
         if not services.client.ready:
             raise HTTPException(status_code=503, detail="天勤连接初始化中，请稍候重试")
 
     def mask_account(account: str) -> str:
+        """账号脱敏（189****36 形态）：任何接口都绝不回传完整账号或密码。"""
         return account[:3] + "****" + account[-2:] if len(account) > 6 else "****"
 
     router = APIRouter()
@@ -174,6 +186,7 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
     @router.get("/api/v1/kline/{symbol}")
     def kline(symbol: str, period: int = 300, count: int = 200,
               services: Services = Depends(get_services)) -> dict:
+        """查询单周期 K 线；count 截断到 30..1000，周期必须在白名单内。"""
         require_connected(services)
         if period not in KLINE_PERIODS:
             raise HTTPException(status_code=422, detail=f"不支持的周期：{period}，可选 {sorted(KLINE_PERIODS)}")
@@ -187,6 +200,11 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
 
     @router.get("/api/v1/decision/{symbol}")
     def decision(symbol: str, services: Services = Depends(get_services)) -> dict:
+        """决策评估：实时快照 + 四周期 K 线 → 评估引擎的方向/止损/目标/手数。
+
+        目录未就绪时返回 503（≠ 合约不存在，前端稍后重试）；未收到行情时
+        返回 pending=True（绝不拿旧数据硬评）。
+        """
         require_connected(services)
         normalized = normalize_symbol(services.client, symbol)
         if normalized is None:
@@ -208,6 +226,7 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
 
     @router.get("/api/v1/quote/{symbol}")
     def quote(symbol: str, services: Services = Depends(get_services)) -> dict:
+        """查最新行情：缓存命中直接返回；未订阅则自动订阅并返回 pending=True。"""
         require_connected(services)
         normalized = normalize_symbol(services.client, symbol)
         if normalized is None:
@@ -243,6 +262,8 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
 
 
 def _lifespan(services: Services):
+    """FastAPI 生命周期：启动广播泵与行情线程，可选挂"空连接自动退出"保险丝；
+    关停时逆序取消任务并关闭客户端。"""
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> None:
         services.loop = asyncio.get_running_loop()

@@ -35,6 +35,7 @@ MIN_GAP = 15
 
 
 def _closes(bars: list[dict]) -> list[float]:
+    """提取收盘价序列（指标计算的通用前置步骤）。"""
     return [float(bar["close"]) for bar in bars]
 
 
@@ -51,6 +52,15 @@ def _volumes(bars: list[dict]) -> list[float]:
 
 
 def _round_tick(value: float, tick: float, upward: bool = False) -> float:
+    """把价格取整到最小变动价位的整数倍（止损向下取、目标向上取，保守方向）。
+
+    Args:
+        value: 待取整价格。 tick: 合约最小变动价位。
+        upward: True 向上取整（目标位），False 向下取整（止损位）。
+
+    Returns:
+        对齐到 tick 网格的价格（按 tick 的小数位数四舍五入消除浮点误差）。
+    """
     if tick <= 0:
         return value
     rounded = math.ceil(value / tick) * tick if upward else math.floor(value / tick) * tick
@@ -298,7 +308,21 @@ def _risk_factor(m5: list[dict], daily: list[dict], quote: dict) -> tuple[float,
 
 def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
              risk: RiskConfig) -> dict:
-    """综合评估一个合约。``klines`` 键为周期秒数，值为标准 K 线 dict 列表。"""
+    """综合评估一个合约：多因子打分 → 方向判定 → 止损/目标/手数计算。
+
+    Args:
+        instrument: 合约静态信息（取最小变动价位与合约乘数）。
+        quote: 实时报价 dict（需要 last/open_interest/pre_close/direction 等键）。
+        klines: {周期秒: 标准 K 线列表}，需要日线/60 分/5 分三个周期。
+        risk: 风险参数（账户权益、单笔最大亏损、最大手数）。
+
+    Returns:
+        评估结果 dict：direction（做多/做空/观望）、score_long/score_short/score、
+        entry/stop/target1/target2（均按 tick 取整）、contracts（按单笔风险反推的
+        手数，至少 1 手）、rationale（评分依据的可读列表，直接供前端展示）、
+        data_ok（数据是否充足；False 时所有交易参数为 None）。
+        数据不足（K 线 <30 根或无最新价）时返回观望且 data_ok=False，绝不硬评。
+    """
     # 清洗：剔除缺失关键价格的 K 线（部分免费行情字段可能缺失）。
     klines = {period: [bar for bar in bars if bar.get("close") is not None]
               for period, bars in klines.items()}

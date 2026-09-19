@@ -78,6 +78,12 @@ def build_services(config: Config,
 
 
 async def _broadcast_loop(services: Services) -> None:
+    """WS 广播泵：把行情回调线程投递进队列的快照逐个推给所有 WS 客户端。
+
+    在 uvicorn 事件循环里作为后台任务常驻（api/http.py lifespan 启动）。
+    队列惰性创建（asyncio.Queue 绑定创建它的 loop），put 端在行情线程经
+    call_soon_threadsafe 投递，本协程只负责 get + 广播。
+    """
     while True:
         if services.broadcast_queue is None:
             services.broadcast_queue = asyncio.Queue()

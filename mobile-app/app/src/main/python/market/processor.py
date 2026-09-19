@@ -12,6 +12,7 @@ from .model import MarketQuote, QuoteLevel, split_symbol
 
 
 def _number(value: Any) -> Optional[float]:
+    """把任意来源的字段值安全转成有限浮点数（None/非数值/NaN/Inf 一律归 None）。"""
     if value is None:
         return None
     try:
@@ -24,6 +25,7 @@ def _number(value: Any) -> Optional[float]:
 
 
 def _epoch_ms(value: Any) -> Optional[int]:
+    """把行情时间戳归一化为 epoch 毫秒整数（兼容 numpy datetime64 与普通数值）。"""
     if value is None:
         return None
     # TqSdk 的 datetime 是 numpy.datetime64(ns)，转成 epoch 毫秒。
@@ -40,6 +42,7 @@ def _epoch_ms(value: Any) -> Optional[int]:
 
 
 def _levels(quote: Any, side: str) -> list[QuoteLevel]:
+    """提取五档盘口的某一侧（bid/ask），遇到首个全空档位即截断。"""
     output: list[QuoteLevel] = []
     for index in range(1, 6):
         price = _number(getattr(quote, f"{side}_price{index}", None))
@@ -51,9 +54,16 @@ def _levels(quote: Any, side: str) -> list[QuoteLevel]:
 
 
 def to_market_quote(symbol: str, quote: Any) -> Optional[MarketQuote]:
-    """把 TqSdk 的 Quote 对象归一化为 :class:`MarketQuote`。
+    """把 TqSdk 风格的 Quote 对象归一化为 :class:`MarketQuote`（行情链路的统一出口）。
 
-    返回 None 表示该对象不包含任何有效价格数据（例如尚未收到首笔行情）。
+    任何实现同样属性的对象（TqSdk 实体、DIFF 快照的 SimpleNamespace、测试替身）
+    都可以转换——本模块不 import tqsdk。
+
+    Args:
+        symbol: 合约完整代码。 quote: 带 last_price/datetime/五档属性的行情对象。
+
+    Returns:
+        MarketQuote 实例；无有效最新价（尚未收到首笔行情）返回 None。
     """
     exchange, instrument_id = split_symbol(symbol)
     last = _number(getattr(quote, "last_price", None))

@@ -25,11 +25,17 @@ public class BackendService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private PowerManager.WakeLock wakeLock;
 
+    /** 不提供绑定接口：纯前台服务，Activity 只负责 startService。 */
     @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
 
+    /**
+     * 服务创建（进程内仅一次）：挂常驻通知 → 持 PARTIAL_WAKE_LOCK（锁屏期间
+     * CPU 不休眠，行情推送与 HTTP 不中断）→ 启动 Chaquopy Python 并调
+     * backend_main.start() 拉起后端线程。Python 启动失败则释放资源自停。
+     */
     @Override
     public void onCreate() {
         super.onCreate();
@@ -57,11 +63,13 @@ public class BackendService extends Service {
         }
     }
 
+    /** START_STICKY：进程被系统回收后自动重启服务（重新走 onCreate 拉起后端）。 */
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         return START_STICKY;
     }
 
+    /** 持锁 PARTIAL_WAKE_LOCK（不计数模式，持有一份即可，锁屏后 CPU 维持运行）。 */
     private void acquireWakeLock() {
         PowerManager powerManager = getSystemService(PowerManager.class);
         if (powerManager == null || (wakeLock != null && wakeLock.isHeld())) {
@@ -86,6 +94,7 @@ public class BackendService extends Service {
         super.onDestroy();
     }
 
+    /** 创建低优先级通知渠道（Android 8+ 必须；低优先级=不发声不震动，仅常驻）。 */
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(

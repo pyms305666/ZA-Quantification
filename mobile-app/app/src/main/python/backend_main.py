@@ -24,6 +24,10 @@ def files_dir() -> str:
 
 
 def _run_server():
+    """后端线程主函数：切到私有目录、设环境变量、补模块路径、阻塞跑 uvicorn。
+
+    任何异常都只打印不重抛（线程内崩溃只影响本线程，Java 侧通知仍存活）。
+    """
     data = Path(files_dir())
     data.mkdir(parents=True, exist_ok=True)
     os.chdir(data)
@@ -39,6 +43,7 @@ def _run_server():
 
 
 def start() -> None:
+    """启动后端线程（幂等：Event 保证只启动一次；供 BackendService.onCreate 调用）。"""
     if _started.is_set():
         return
     _started.set()

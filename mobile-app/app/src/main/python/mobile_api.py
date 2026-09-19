@@ -39,6 +39,7 @@ ROUTE_NAME = "C 直连版"
 
 
 def _json(data, status: int = 200) -> JSONResponse:
+    """JSON 响应的统一封装（比桌面版少一层 pydantic，纯 dict 输出）。"""
     return JSONResponse(data, status_code=status)
 
 
@@ -103,6 +104,7 @@ class MobileHub:
 
     # ---- WebSocket 广播 ----
     def on_startup(self) -> None:
+        """uvicorn lifespan 启动钩子：记录事件循环、启动行情线程与广播泵。"""
         self.loop = asyncio.get_running_loop()
         # asyncio.Queue 必须在 uvicorn loop 内创建，行情线程只经
         # call_soon_threadsafe(_enqueue) 投递——不跨线程直接操作就没有 loop 绑定问题，
@@ -118,6 +120,8 @@ class MobileHub:
             self.queue.put_nowait(quote)
 
     async def _broadcast_loop(self) -> None:
+        """WS 广播泵（uvicorn loop 常驻任务）：逐条推队列里的行情快照，
+        推送失败的连接从列表摘除。"""
         while True:
             quote = await self.queue.get()
             payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
@@ -167,6 +171,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         return _json({"ok": True})
 
     async def status(request):
+        """网关状态总览：连接/目录三态/延迟埋点/WS 客户端数（前端 15 秒轮询）。
+
+        注意 futures_count 只在目录就绪后计算——futures() 首查会建立缓存，
+        此前 v1.1.3 缺陷：未就绪时的首查把内置表钉死（已由完整性感知缓存修复）。
+        """
         catalog = None
         catalog_ready = getattr(hub.client, "catalog_ready", True)
         catalog_complete = getattr(hub.client, "catalog_complete", catalog_ready)
@@ -270,6 +279,7 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         return _json({"symbol": symbol, **await hub.unsubscribe_async([symbol])})
 
     async def ws_market(websocket: WebSocket):
+        """行情 WS 端点：subscribe/unsubscribe/ping 三种动作，断开自动摘除。"""
         await websocket.accept()
         await websocket.send_json({"type": "hello", "connected": hub.client.connected,
                                    "subscribed": hub.subscriptions.subscribed()})
@@ -336,7 +346,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
 def run_mobile_server(host: str = "127.0.0.1", port: int = 8000,
                       static_dir: Optional[Path] = None) -> None:
-    """Android 入口：启动后端（阻塞，放入后台线程调用）。"""
+    """Android 入口：加载配置 → 装配 MobileHub → 启动 uvicorn（阻塞）。
+
+    由 BackendService 的后台线程调用（Chaquopy 从 Java 侧导入本模块触发）。
+    静态目录即 APK 内打包的 mobile static（前端同源加载，无跨域）。
+    """
     import uvicorn
     config = load_config()
     hub = MobileHub(config, static_dir)

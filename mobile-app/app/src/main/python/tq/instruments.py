@@ -66,12 +66,20 @@ class InstrumentManager:
 
     def list(self, exchange: str = "", keyword: str = "", refresh: bool = False,
              limit: int = 0) -> list[dict]:
-        """合约目录。exchange 为 ``SHFE`` 等交易所代码；keyword 匹配代码/名称。
+        """合约目录列表查询（搜索框与合约列表页的唯一入口）。
 
-        缺陷 E：有关键字时不再按代码预过滤——中文名（如"棕榈"）的合约代码
-        里不含该字，预过滤会把它提前丢弃，后置名称匹配永远收不到它。
-        改为：关键字搜索时全部进入批量查询，再用名称/代码做后置匹配。
-        limit>0 且无关键字时截断（首次目录未就绪时的启动保护）。
+        执行流程：futures() 取全部候选 → 按交易所前缀过滤 → 关键字后置匹配
+        （代码或中文名）→ 批量补齐 record（一次 get_instruments_info 命令，
+        避免逐个查询的超时放大）→ 按 symbol 排序返回。
+
+        Args:
+            exchange: 交易所代码过滤（"SHFE" 等；空 = 全部）。
+            keyword: 关键字；同时匹配代码与中文名（缺陷 E 修复：不再按代码预过滤）。
+            refresh: True 时强制重查合约清单（绕过 _futures 缓存）。
+            limit: 无关键字时的截断上限（目录未就绪时的启动保护）；0 = 不限制。
+
+        Returns:
+            精简 record 字典列表，按 symbol 排序。
         """
         exchange = exchange.upper()
         code_keyword = keyword.lower()
@@ -119,7 +127,18 @@ class InstrumentManager:
         return [item.to_dict() for item in output]
 
     def get(self, symbol: str) -> Optional[Instrument]:
-        """单个合约的目录记录（带缓存；失败结果冷却 30 秒）。"""
+        """按代码查单只合约，返回面向展示/评估的 Instrument 对象。
+
+        查询链路：normalize_symbol 规范化代码（自动补交易所前缀/统一大小写）
+        → 走客户端命令 get_instrument 取 record → 转成 Instrument
+        （失败有 _failed_cache 冷却，避免前端轮询反复触发慢查询）。
+
+        Args:
+            symbol: 任意形态的合约代码（"rb2610"/"SHFE.rb2610"/"SR609" 均可）。
+
+        Returns:
+            Instrument 实例；查不到返回 None。
+        """
         normalized = normalize_symbol(self._client, symbol)
         if normalized is None:
             return None

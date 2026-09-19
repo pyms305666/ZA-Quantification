@@ -10,7 +10,11 @@ EXCHANGES = ("SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX")
 
 
 def split_symbol(symbol: str) -> tuple[str, str]:
-    """``SHFE.rb2610`` -> (``SHFE``, ``rb2610``)；无法拆分时 exchange 为空。"""
+    """拆分合约代码为 (交易所, 合约号)。
+
+    ``SHFE.rb2610`` -> ("SHFE", "rb2610")；无前缀时 exchange 为空串、
+    合约号统一小写。用于按交易所分组的展示场景。
+    """
     value = (symbol or "").strip()
     if "." in value:
         exchange, _, instrument_id = value.partition(".")
@@ -20,7 +24,7 @@ def split_symbol(symbol: str) -> tuple[str, str]:
 
 @dataclass(frozen=True)
 class QuoteLevel:
-    """单档盘口。"""
+    """单档盘口：一档的价格与挂手数（价格 None 表示该档不存在）。"""
 
     price: Optional[float]
     volume: Optional[float]
@@ -31,7 +35,11 @@ class QuoteLevel:
 
 @dataclass
 class MarketQuote:
-    """统一后的标准行情（五档盘口，买一在前）。"""
+    """统一后的标准行情快照（屏蔽 TqSdk/DIFF 内部字段差异的唯一出口）。
+
+    字段均为基础类型，可直接 JSON 序列化给前端；五档盘口买一在前、
+    卖一在前各按盘口方向排列。timestamp 为 epoch 毫秒。
+    """
 
     symbol: str
     exchange: str
@@ -67,7 +75,8 @@ class MarketQuote:
 
 @dataclass
 class Instrument:
-    """标准合约目录条目。"""
+    """标准合约目录条目：静态属性（合约号/名称/乘数/最小变动价/剩余天数），
+    决策评估用它做 tick 取整与手数计算，前端搜索/列表用它展示。"""
 
     symbol: str
     exchange: str

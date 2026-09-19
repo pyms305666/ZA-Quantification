@@ -42,7 +42,21 @@ def _headers(access_token: str) -> dict:
 
 
 def login(account: str, password: str) -> dict:
-    """OAuth 密码模式登录，返回 {"access_token", "refresh_token"}。"""
+    """OAuth 密码模式登录天勤认证服务，换取行情访问令牌。
+
+    走 Keycloak 标准的 password grant（client_id/client_secret 为天勤公开固定值）。
+
+    Args:
+        account: 天勤账号（手机号/邮箱）。
+        password: 天勤密码。
+
+    Returns:
+        {"access_token": JWT 令牌（内含行情权限，后续所有请求 Bearer 携带）,
+         "refresh_token": 刷新令牌（本项目暂未使用刷新流程）}。
+
+    Raises:
+        DiffAuthError: 账号密码未配置、认证服务连不上，或账号密码错误（HTTP 非 200）。
+    """
     if not account or not password:
         raise DiffAuthError("未配置天勤账号/密码（config.json 或环境变量 TQ_ACCOUNT/TQ_PASSWORD）")
     data = {
@@ -426,7 +440,20 @@ def _download_symbol_file_resume(access_token: str,
 
 
 def parse_instrument_record(symbol: str, entry: dict[str, Any]) -> Optional[dict]:
-    """静态合约文件条目 → 与 TqClient.get_instrument 相同结构的记录。"""
+    """静态合约文件条目 → 与 TqClient.get_instrument 相同结构的精简记录。
+
+    归一化动作：exchange 转大写、instrument_id 去掉交易所前缀（避免重复）、
+    过期时间换算为剩余天数、价格/乘数转数值类型。
+
+    Args:
+        symbol: 合约完整代码（如 "SHFE.rb2610"），作为记录的规范键。
+        entry: 合约文件的原始条目（字段名与天勤静态文件一致，可能缺字段）。
+
+    Returns:
+        精简 record：{symbol, exchange, instrument_id, name, kind, expired,
+        price_tick, volume_multiple, expire_rest_days}；条目无效（缺交易所/
+        合约号）返回 None。
+    """
     if not isinstance(entry, dict) or not entry:
         return None
     instrument_id = str(entry.get("instrument_id") or "")
@@ -458,7 +485,7 @@ def parse_instrument_record(symbol: str, entry: dict[str, Any]) -> Optional[dict
 
 
 def parse_kline_row(row: Any) -> Optional[dict]:
-    """DIFF K 线行 → 标准 K 线 dict。
+    """DIFF K 线原始行 → 标准 K 线 dict（前端/评估器统一消费的形状）。
 
     实测（TqSdk 抓包）行是字典：
     {"datetime": ns, "open":.., "high":.., "low":.., "close":..,

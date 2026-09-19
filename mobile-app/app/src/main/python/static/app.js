@@ -30,6 +30,12 @@ const fmt = (v, d = 2) => v == null ? "--" : Number(v).toLocaleString("zh-CN", {
 const now = () => new Date().toLocaleTimeString("zh-CN", { hour12: false });
 
 /* ---------- 接口 ---------- */
+/**
+ * 后端 REST 请求封装：JSON 解析 + 超时中止 + 错误信息归一化。
+ * @param {string} path 接口路径（如 "/api/v1/status"）
+ * @param {number} timeoutMs 超时毫秒数（默认 45s，K线/决策类接口较慢）
+ * @returns {Promise<Object>} 后端 JSON；非 2xx 抛 Error(detail)，供各 load* 统一捕获
+ */
 async function api(path, timeoutMs = 45000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -42,6 +48,12 @@ async function api(path, timeoutMs = 45000) {
 }
 
 /* ---------- 屏幕切换 ---------- */
+/**
+ * 切换主界面屏幕：全部 .screen 加 hidden，仅显示目标屏；底部 tab 高亮同步。
+ * 切到 K线页时延迟 60ms 触发图表 resize（容器从 display:none 恢复后尺寸才生效）；
+ * 切回行情页时重建自选列表。
+ * @param {string} name 屏幕名："quotes" | "kline" | "decision" | "me"
+ */
 function showScreen(name) {
   for (const s of document.querySelectorAll(".screen")) s.classList.add("hidden");
   $("screen-" + name).classList.remove("hidden");
@@ -75,6 +87,10 @@ function removeWatch(symbol) {
   }
   renderWatchlist();
 }
+/**
+ * 重建搜索结果列表：清空容器、重置分页游标后渲染第一批（50 条）。
+ * 关键字搜索（缺陷 E）与全量浏览（缺陷 D 滚动分批）共用此入口。
+ */
 function renderSearch() {
   const box = $("resultlist");
   box.innerHTML = "";
@@ -85,6 +101,10 @@ function renderSearch() {
 
 /* 缺陷 D：分批 append（每次 50 条），滚到底部自动加载下一批。
    此前 slice(0,50) 把 578 条期货截到 50，用户永远看不到后面的合约。 */
+/**
+ * 追加渲染下一批搜索结果（每批 searchPageSize=50 条），滚到底部自动续加载。
+ * 全部渲染完后移除滚动监听，避免触底空转。
+ */
 function appendSearchPage() {
   const box = $("resultlist");
   if (state.searchPage == null) state.searchPage = 0;
@@ -116,6 +136,11 @@ function appendSearchPage() {
 }
 
 /* ---------- K 线 ---------- */
+/**
+ * 初始化 K 线主图与 MACD 副图（ECharts 实例 + 基础配置，只执行一次）。
+ * 缺陷 G：progressive 分块渲染是手机端防 tile 内存超限的关键配置。
+ * 初始化失败仅记录日志（echarts 加载失败时页面其余功能仍可用）。
+ */
 function initCharts() {
   try {
   state.chart = echarts.init($("k-chart"));
@@ -146,6 +171,11 @@ function initCharts() {
   } catch (e) { console.log('initCharts fail:', e); }
 }
 
+/**
+ * 渲染 K 线主图（蜡烛 + MA20）与 MACD 副图。
+ * 缺陷 G：增量 setOption（lazyReplace）——只更新 series/xAxis 数据，
+ * 不重建 grid 等静态配置，避免长会话后手机 WebView tile 内存超限。
+ */
 function renderKline() {
   const k = state.kline;
   if (!k.length) return;
@@ -176,6 +206,10 @@ function renderKline() {
     series: [{ data: hist.map(v => ({ value: v, itemStyle: { color: v >= 0 ? UP : DOWN } })) }],
   }, { lazyReplace: true });
 }
+/**
+ * K 线横轴时间标签：日线显示 "月-日"，其余周期显示 "时:分"。
+ * @param {number} ms epoch 毫秒
+ */
 function fmtTime(ms) {
   const d = new Date(ms);
   return state.period >= 86400
@@ -185,6 +219,10 @@ function fmtTime(ms) {
 
 /* ---------- 行情渲染 ---------- */
 function colorBy(v, ref) { return ref == null ? "" : (v >= ref ? "up" : "down"); }
+/**
+ * 渲染当前合约的完整报价：报价头（最新/涨跌/开高低收/量/仓）、盘口买卖一、
+ * 自选列表对应行、三张指数卡。数据来自 WS 推送（renderQuote 由 connectWS 触发）。
+ */
 function renderQuote() {
   const q = state.quote;
   if (!q) return;
@@ -218,6 +256,10 @@ function renderQuote() {
 function pctOf(v, ref) { return ref ? ((v - ref) / ref * 100).toFixed(2) : "--"; }
 
 /* ---------- 决策 ---------- */
+/**
+ * 渲染决策页：方向/多空分/评分条/入场止损目标/手数/风险额/评估依据列表。
+ * @param {Object|null} d 评估结果；null 或 pending=true 时显示占位 "--"
+ */
 function renderDecision(d) {
   if (!d || d.pending) { $("dd-dir").textContent = "--"; return; }
   const cls = d.direction === "做多" ? "up" : d.direction === "做空" ? "down" : "amber";
@@ -233,6 +275,10 @@ function renderDecision(d) {
   $("dd-whycount").textContent = `评估依据 · ${(d.rationale || []).length} 条`;
   $("dd-why").innerHTML = (d.rationale || []).map(r => `<li>${r}</li>`).join("") || "<li>无</li>";
 }
+/**
+ * 渲染 K线页底部的"决策速览"抽屉（方向/评分/关键价位精简版）。
+ * @param {Object} d 评估结果（非 pending）
+ */
 function renderQuickPanel(d) {
   const cls = d.direction === "做多" ? "up" : d.direction === "做空" ? "down" : "amber";
   $("dc-dir").textContent = d.direction;
@@ -246,6 +292,10 @@ function renderQuickPanel(d) {
 }
 
 /* ---------- 加载 ---------- */
+/**
+ * 拉取并渲染当前合约的 K 线（20 秒定时轮询 + 切合约/切周期时手动触发）。
+ * klineReq 序号防乱序：慢请求返回时若已有更新的请求，直接丢弃本次结果。
+ */
 async function loadKline() {
   const reqId = ++state.klineReq;
   try {
@@ -255,6 +305,10 @@ async function loadKline() {
     renderKline();
   } catch (e) { console.log("kline:", e.message); }
 }
+/**
+ * 拉取并渲染决策评估（6 秒定时轮询；后端数据不足时返回 pending 占位）。
+ * 同样带 reqId 序号防乱序。
+ */
 async function loadDecision() {
   const reqId = ++state.decisionReq || (state.decisionReq = 1);
   try {
@@ -269,6 +323,12 @@ async function loadDecision() {
     console.log("decision:", e.message);
   }
 }
+/**
+ * 拉取合约目录列表（搜索/全量浏览）。
+ * 目录未就绪（catalogReady=false）时不请求、不报错——只展示"下载中"提示，
+ * loadStatus 轮询发现就绪后会自动补拉（配合后端内置表 + 后台下载链路）。
+ * @param {string} keyword 搜索关键字（空 = 全量分批浏览）
+ */
 async function loadInstruments(keyword = "") {
   // 目录未就绪：不拉取、不报错，只显示下载中提示，等 loadStatus 发现就绪后再补拉。
   if (!state.catalogReady) {
@@ -291,6 +351,10 @@ async function loadInstruments(keyword = "") {
     state.instrumentsLoading = false;
   }
 }
+/**
+ * 轮询后端状态（15 秒一次）：更新连接标识/账号/路线/目录下载进度提示，
+ * 目录就绪瞬间自动补拉一次搜索列表。失败静默（下一轮再试）。
+ */
 async function loadStatus() {
   try {
     const st = await api("/api/v1/status");
@@ -317,6 +381,12 @@ async function loadStatus() {
 }
 
 /* ---------- WebSocket ---------- */
+/**
+ * 建立行情 WebSocket：订阅全部自选；收到 quote/quote_snapshot 时更新主报价区
+ * 与自选行，并做端到端延迟统计（每 100 笔打一条 console 日志）；
+ * 订阅失败（后端未就绪窗口）触发退避重试；断线 3 秒后自动重连
+ * （页面不可见时不重连，切回前台由 visibilitychange 统一处理）。
+ */
 function connectWS() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`);
   state.ws = ws;
@@ -405,6 +475,11 @@ function renderWatchlist() {
 }
 
 /* ---------- 合约切换 ---------- */
+/**
+ * 切换当前查看的合约（点自选行/搜索结果行触发）。
+ * 首次查看会自动加入自选并持久化；用缓存价格先回填报价头避免闪 "--"；
+ * 切屏到 K线并重新拉取 K 线与决策；重新订阅（当前 + 全部自选）。
+ */
 function switchSymbol(symbol) {
   if (symbol === state.symbol) { showScreen("kline"); return; }
   state.symbol = symbol;
@@ -426,6 +501,7 @@ function switchSymbol(symbol) {
   loadKline(); loadDecision();
 }
 
+/** 切换当前合约的自选收藏状态（K线页 ★/☆ 按钮），同步持久化与列表。 */
 function toggleWatch() {
   const i = state.watchlist.indexOf(state.symbol);
   if (i >= 0) state.watchlist.splice(i, 1); else state.watchlist.push(state.symbol);
@@ -435,6 +511,10 @@ function toggleWatch() {
 }
 
 /* ---------- 登录 ---------- */
+/**
+ * 启动时检查登录态：未配置凭据或后端未就绪都弹出登录层（盖在主界面上）。
+ * @returns {Promise<boolean>} 已配置凭据且后端可达返回 true
+ */
 async function checkAuth() {
   try {
     const auth = await api("/api/v1/auth", 8000);
@@ -453,6 +533,10 @@ async function checkAuth() {
     return false;
   }
 }
+/**
+ * 登录提交：POST /api/v1/auth 保存凭据并触发后端用新凭据重连；
+ * 成功后隐藏登录层、重载全部数据流。失败在登录层内联展示原因。
+ */
 async function saveLogin() {
   const account = $("login-account").value.trim(), password = $("login-password").value;
   if (!account || !password) { $("login-error").textContent = "账号与密码不能为空"; return; }
@@ -477,6 +561,7 @@ async function saveLogin() {
     $("login-save").disabled = false;
   }
 }
+/** 退出登录：DELETE /api/v1/auth 清除凭据，弹回登录层（后端同时断开连接）。 */
 async function logout() {
   try {
     await fetch("/api/v1/auth", { method: "DELETE" });
@@ -487,14 +572,21 @@ async function logout() {
 }
 
 /* ---------- K线默认周期（"我的"页设置，localStorage 持久化） ---------- */
+/** 周期秒数 → 中文标签（"5 分钟"/"日线"…）；未知名回退 "5 分钟"。 */
 function periodLabel(p) {
   return (KLINE_PERIODS.find(x => x.p === p) || KLINE_PERIODS[1]).label;
 }
+/** 同步两处周期 UI：设置行显示当前值 + K线页周期按钮高亮归位。 */
 function syncPeriodUi() {
   $("me-period").textContent = periodLabel(state.period) + " ›";
   document.querySelectorAll("#ptabs button").forEach(x =>
     x.classList.toggle("active", Number(x.dataset.p) === state.period));
 }
+/**
+ * 设置 K 线默认周期（唯一的周期变更入口，K线页按钮与设置行共用）：
+ * 校验合法 → 写 localStorage 持久化 → 同步 UI → K线页可见时重载图表。
+ * @param {number} p 周期秒数（必须在 KLINE_PERIODS 白名单内）
+ */
 function setPeriod(p) {
   if (!KLINE_PERIODS.some(x => x.p === p)) return;
   state.period = p;
@@ -502,6 +594,7 @@ function setPeriod(p) {
   syncPeriodUi();
   if (state.screen === "kline") loadKline();
 }
+/** 关闭"使用说明与免责声明"浮层（我知道了按钮 / 点遮罩共用）。 */
 function closeHelpSheet() {
   $("sheet-mask").classList.add("hidden");
   $("sheet-help").classList.add("hidden");
@@ -542,7 +635,12 @@ document.querySelector("#screen-login .hint .cyan").addEventListener("click",
 window.addEventListener("resize", () => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); });
 
 /* ---------- 启动 ---------- */
-(async function init() {
+(/**
+ * 启动序列：初始化图表与自选列表 → 同步周期 UI → 显示主界面骨架 →
+ * 检查登录态（未配置则弹登录层覆盖）→ 拉起全部数据流（状态/K线/决策/目录/WS）
+ * → 挂载三组定时轮询与前台切回监听。
+ */
+async function init() {
   console.log('APP_INIT start, bodyBg=' + getComputedStyle(document.body).backgroundColor +
     ' appMainVisible=' + (document.getElementById('app-main') ? 'yes' : 'no'));
   initCharts();

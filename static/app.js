@@ -19,6 +19,13 @@ const state = {
 };
 
 /* ---------------- 工具 ---------------- */
+/**
+ * REST 请求封装：JSON 解析 + AbortController 超时 + 错误归一化。
+ * @param {string} url 接口路径
+ * @param {Object} [options] 透传给 fetch 的附加选项（method/headers/body）
+ * @param {number} [timeoutMs=30000] 超时毫秒（K线/决策类调用显式给 45s）
+ * @returns {Promise<Object>} 后端 JSON；非 2xx 抛 Error(detail)
+ */
 async function fetchJSON(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -32,12 +39,15 @@ async function fetchJSON(url, options, timeoutMs = 30000) {
   }
 }
 
+/** 价格格式化：千分位 + 指定位数；null/undefined 显示 "--"。 */
 function fmtPrice(v, digits) {
   if (v === null || v === undefined) return "--";
   return Number(v).toLocaleString("zh-CN", { minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 0 });
 }
+/** 成交量/持仓量格式化（整数千分位）；空值显示 "--"。 */
 function fmtVol(v) { return v === null || v === undefined ? "--" : Number(v).toLocaleString("zh-CN"); }
 
+/** K线横轴时间标签：日线 "月-日"，日内 "时:分"。 */
 function fmtTime(ms, daily) {
   const d = new Date(ms);
   const p = (n) => String(n).padStart(2, "0");
@@ -56,6 +66,11 @@ function ma(values, period) {
   return out;
 }
 /* MACD 12/26/9 */
+/**
+ * MACD(12,26,9) 序列：DIF=EMA12-EMA26，DEA=DIF 的 0.2/0.8 递推平滑，
+ * 柱=(DIF-DEA)×2。与后端 market.indicators 数值一致、算法略简（首值种子不同），
+ * 仅用于前端图形展示，不参与评估计算。
+ */
 function macdSeries(closes) {
   const ema = (period) => {
     const out = [closes[0]];
@@ -81,6 +96,10 @@ $("search").addEventListener("input", () => {
   searchTimer = setTimeout(loadInstruments, 300);
 });
 
+/**
+ * 拉取合约目录列表（关键字 + 交易所过滤）。
+ * 目录未就绪/网络抖动 ≠ 未连接：给出准确文案并每 5 秒自动重试（instPoll）。
+ */
 async function loadInstruments() {
   try {
     const keyword = $("search").value.trim();
@@ -100,6 +119,7 @@ async function loadInstruments() {
   }
 }
 
+/** 渲染左侧合约列表（当前选中高亮；title 悬浮显示乘数与最小变动价位）。 */
 function renderContractList() {
   const list = $("contract-list");
   list.innerHTML = "";
@@ -115,6 +135,7 @@ function renderContractList() {
   }
 }
 
+/** 渲染顶部自选快捷按钮（过滤 KQD. 外盘主连——不在国内评估范围）。 */
 function renderWatchlist() {
   const box = $("watchlist");
   box.innerHTML = "";
@@ -181,6 +202,12 @@ const option = {
   series: [],
 };
 
+/**
+ * 由 state.kline 构建三区图表的全部 series：
+ * K线主区（蜡烛 + MA5/10/20/60 + 决策止损/目标 markLine）、
+ * 成交量/持仓量区、MACD 区。
+ * @returns {{series: Array, dates: string[]}} series 与横轴标签
+ */
 function buildSeries() {
   const k = state.kline;
   const closes = k.map((b) => b.close);
@@ -221,6 +248,11 @@ function buildSeries() {
   return { series, dates };
 }
 
+/**
+ * 渲染图表：增量 setOption（只更新数据与缩放窗口，默认显示最近 120 根）。
+ * 注意绝不传 yAxis——首次 option 已定义组件，增量传 null 会让 ECharts 5.5
+ * 崩溃（见 init 内注释）。
+ */
 function renderChart() {
   if (!state.kline.length) return;
   const { series, dates } = buildSeries();
@@ -236,6 +268,7 @@ function renderChart() {
   });
 }
 
+/** 在主图上画最新价水平虚线（随每笔行情推送更新位置）。 */
 function updateLastPriceLine() {
   if (!state.quote || !state.kline.length || typeof state.quote.last !== "number") return;
   chart.setOption({
@@ -251,6 +284,10 @@ chart.on("dblclick", () => {
 });
 
 /* ---------------- 行情与盘口 ---------------- */
+/**
+ * 渲染顶部报价头：最新价/涨跌/涨跌幅（红涨绿跌）、开高低收/量/仓/仓差，
+ * 并同步主图最新价标线。
+ */
 function renderQuoteBar() {
   const q = state.quote;
   if (!q) return;
@@ -272,6 +309,7 @@ function renderQuoteBar() {
   updateLastPriceLine();
 }
 
+/** 渲染五档盘口：卖五→卖一、最新价分隔条、买一→买五（红涨绿跌着色）。 */
 function renderDepth() {
   const q = state.quote;
   if (!q) return;
@@ -299,6 +337,10 @@ function renderDepth() {
 }
 
 /* ---------------- 决策面板 ---------------- */
+/**
+ * 渲染右侧决策面板：方向/评分条/入场止损目标/手数/风险额/评估依据。
+ * pending 或数据不足时展示提示文案而非空面板。
+ */
 function renderDecision() {
   const body = $("decision-body");
   const d = state.decision;
@@ -340,6 +382,10 @@ function renderDecision() {
 }
 
 /* ---------------- 天勤账户登录 ---------------- */
+/**
+ * 启动时检查登录态：未配置凭据弹出登录弹窗（顶部按钮显示"账户未登录"）。
+ * @returns {Promise<boolean|undefined>} 已配置返回 true
+ */
 async function checkAuth() {
   try {
     const auth = await fetchJSON("/api/v1/auth");
@@ -362,6 +408,10 @@ function hideAuthModal() {
   $("auth-error").textContent = "";
 }
 
+/**
+ * 登录提交：POST /api/v1/auth 保存凭据（桌面端进 Windows 凭据管理器），
+ * 成功后关闭弹窗并重载全部数据流；失败在弹窗内联展示原因。
+ */
 async function saveAuth() {
   const account = $("auth-account").value.trim();
   const password = $("auth-password").value;
@@ -385,6 +435,7 @@ async function saveAuth() {
 }
 
 /* ---------------- 数据拉取 ---------------- */
+/** 拉取 K 线（默认 400 根，15 秒轮询 + 切合约/切周期触发）并渲染图表。 */
 async function loadKline() {
   try {
     const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`, null, 45000);
@@ -396,6 +447,7 @@ async function loadKline() {
   }
 }
 
+/** 拉取决策评估（6 秒轮询；失败在面板内联展示，不弹错误）。 */
 async function loadDecision() {
   try {
     state.decision = await fetchJSON(`/api/v1/decision/${encodeURIComponent(state.symbol)}`, null, 45000);
@@ -406,6 +458,7 @@ async function loadDecision() {
   }
 }
 
+/** 轮询网关状态（15 秒）：天勤连接状态与 WS 连接状态两行指示。 */
 async function loadStatus() {
   try {
     const st = await fetchJSON("/api/v1/status");
@@ -418,6 +471,10 @@ async function loadStatus() {
 }
 
 /* ---------------- WebSocket ---------------- */
+/**
+ * 行情 WebSocket：onopen 订阅当前合约；quote/quote_snapshot 更新报价头/盘口/
+ * 最新价标线并做端到端延迟统计；订阅失败 5 秒重试；断线 3 秒重连（页面隐藏时不连）。
+ */
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/market`);
@@ -468,6 +525,10 @@ function connectWS() {
 }
 
 /* ---------------- 合约切换 ---------------- */
+/**
+ * 切换当前合约（列表/自选按钮点击）：立即用空数据占位渲染避免旧合约残留，
+ * 重新订阅、拉取 K 线与决策，并从目录取合约元信息（名称/乘数）展示。
+ */
 async function switchSymbol(symbol) {
   if (symbol === state.symbol && state.kline.length) return;
   state.symbol = symbol;
@@ -514,6 +575,11 @@ $("auth-save").addEventListener("click", saveAuth);
 $("auth-cancel").addEventListener("click", hideAuthModal);
 $("auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveAuth(); });
 
+/**
+ * 启动序列：必须先 chart.setOption(option) 应用完整初始配置（grid/xAxis/yAxis
+ * 组件定义），否则后续增量 setOption 会因缺 yAxis 组件而崩溃；
+ * 然后并行拉起状态/目录/K线/决策与 WS，挂三组轮询。
+ */
 async function init() {
   renderWatchlist();
   // 必须先应用初始 option（含 grid/xAxis/yAxis 定义）：renderChart 的 setOption 是

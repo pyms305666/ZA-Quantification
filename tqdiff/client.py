@@ -51,7 +51,19 @@ class SymbolNotFoundError(TqClientError):
 
 
 def _candidates(symbol: str) -> list[str]:
-    """同一合约的大小写候选（静态文件键为各交易所规范写法）。"""
+    """生成同一合约在各交易所规范写法下的候选代码列表（按优先级排序、去重）。
+
+    静态合约文件里的键使用各交易所的规范大小写（如 SHFE/DCE 用小写月份代码、
+    CZCE/CFFEX 用大写），用户输入可能大小写随意，因此按交易所规则生成候选，
+    依次尝试查表直到命中。
+
+    Args:
+        symbol: 用户输入的合约代码，形如 "SHFE.rb2610"；可不含交易所前缀之外的修饰。
+
+    Returns:
+        候选代码列表（至少包含原始输入本身）；空输入返回空列表。
+        例：("czce.SR609") → ["czce.SR609", "CZCE.SR609"]（CZCE 规范为大写）。
+    """
     value = (symbol or "").strip()
     if not value or "." not in value:
         return [value] if value else []
@@ -109,30 +121,45 @@ class DiffClient:
         on_status: Optional[Callable[[str], None]] = None,
         on_connected: Optional[Callable[[], None]] = None,
     ) -> None:
+        """注册三个来自行情线程的回调（均须线程安全、绝不能抛异常阻塞行情）。
+
+        Args:
+            on_quote_change: 每收到一笔合并后的报价回调，参数为 market.MarketQuote 实例
+                （由 to_market_quote 转换），驱动缓存与前端 WS 广播。
+            on_status: 人类可读的状态文本变化回调（"连接中"/"已连接"/异常信息等），
+                同文本只回调一次，用于界面状态栏展示。
+            on_connected: 每次 WebSocket 建立成功（含断线重连）后回调，供订阅管理器
+                重放挂起的订阅（缺陷 A/F 配套）。
+        """
         self._on_quote_change = on_quote_change
         self._on_status = on_status
         self._on_connected = on_connected
 
     @property
     def connected(self) -> bool:
+        """WebSocket 是否处于已连接状态（线程安全读）。"""
         with self._lock:
             return self._connected
 
     @property
     def ready(self) -> bool:
+        """兼容旧 TqClient 的别名：DIFF 路线连接即就绪，无额外预热期。"""
         return self.connected
 
     @property
     def error(self) -> Optional[str]:
+        """最近一次连接/会话的错误文本；正常连接中为 None（线程安全读）。"""
         with self._lock:
             return self._error
 
     @property
     def account(self) -> str:
+        """当前生效的天勤账号（登录界面回显用，已去除首尾空白）。"""
         return self._account
 
     @property
     def credentials_configured(self) -> bool:
+        """账号与密码是否都已配置（决定登录页是否需要弹出）。"""
         with self._lock:
             return bool(self._account and self._password)
 
@@ -176,6 +203,11 @@ class DiffClient:
     # ------------------------------------------------------------ 线程安全接口
 
     def start(self) -> None:
+        """启动行情线程（幂等：线程已存活时直接返回）。
+
+        线程内跑独立 asyncio 事件循环并进入"会话-断开-重连"主循环，
+        直到 close() 被调用。daemon=True：主进程退出无需显式收尾。
+        """
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
@@ -183,6 +215,11 @@ class DiffClient:
         self._thread.start()
 
     def close(self, timeout: float = 3.0) -> None:
+        """停止行情线程并释放事件循环。
+
+        置位停止信号 → 唤醒阻塞中的事件循环 → 等待线程退出（至多 timeout 秒）。
+        线程未在超时内退出也不强杀（daemon 线程随进程消亡）。
+        """
         self._stop.set()
         loop = self._loop
         if loop is not None and loop.is_running():
@@ -192,7 +229,22 @@ class DiffClient:
         self._thread = None
 
     def run_command(self, command: str, *args: Any, timeout: float = 8.0) -> Any:
-        """提交命令协程并等待结果；接口与旧 TqClient 完全一致。"""
+        """提交一条命令协程到行情事件循环并同步等待结果（跨线程唯一通用入口）。
+
+        接口与旧 TqClient 完全一致，上层（tq/instruments、tq/subscriber、api/）
+        无需感知底层是 TqSdk 还是 DIFF 直连。
+
+        Args:
+            command: 命令名，见 _execute 支持的分发表。
+            *args: 命令参数（与 _execute 分发处的解包顺序一一对应）。
+            timeout: 同步等待上限（秒）；超时会取消远端协程。
+
+        Returns:
+            命令协程的返回值（类型随命令而异）。
+
+        Raises:
+            TqClientError: 连接未就绪、命令超时或命令执行失败（统一错误类型）。
+        """
         loop = self._loop
         if loop is None or not loop.is_running() or not self.connected:
             raise TqClientError("DIFF 行情连接初始化中，请稍候重试")
@@ -245,6 +297,12 @@ class DiffClient:
     # ------------------------------------------------------------ 主循环
 
     def _run_loop(self) -> None:
+        """行情线程主函数：创建事件循环并驱动"会话-断开-重连"循环。
+
+        _session() 正常返回（服务器主动断开）→ 提示后 3 秒重连；
+        _session() 抛异常（登录失败/网络断开等）→ 记录错误后 3 秒重连。
+        凭据每次重连都重新读取，因此 set_credentials 后无需额外触发。
+        """
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         try:
@@ -416,6 +474,16 @@ class DiffClient:
     # ------------------------------------------------------------ 数据合并
 
     def _apply_diff(self, diff: dict) -> None:
+        """把一条 DIFF 数据包合并进本地状态（报价字典 + K 线图表缓冲）。
+
+        DIFF 协议的推送是"增量补丁"：quotes 按 symbol 给变化的字段，
+        klines 按 symbol→duration→图表数据三层组织。合并语义（update 而非
+        整体替换）是正确性的关键——增量只带变化字段，替换会丢数据。
+
+        Args:
+            diff: 服务器推送的单条数据包，形如
+                {"quotes": {symbol: {field: value}}, "klines": {...}}，两键均可缺省。
+        """
         quotes_diff = diff.get("quotes")
         if isinstance(quotes_diff, dict):
             for symbol, fields in quotes_diff.items():
@@ -438,6 +506,19 @@ class DiffClient:
                     self._apply_kline_diff(symbol, int(dur_str), chart_data)
 
     def _apply_kline_diff(self, symbol: str, dur_ns: int, chart_data: dict) -> None:
+        """把一根/一批 K 线增量合并进对应图表缓冲，并唤醒等待者。
+
+        处理三类内容：
+        - data：行号→行数据（"@"键为锚点，跳过）；已有行做字段合并（增量语义），
+          新行直接写入；
+        - last_id：服务器最新行号（本地行号水位线），用于判定补齐进度；
+        - ready：首次确认图表后置位，唤醒 set_chart 后的等待协程。
+
+        Args:
+            symbol: 合约代码（klines 增量第一层键就是合约代码，非 chart_id）。
+            dur_ns: K 线周期（纳秒），与 symbol 共同定位图表缓冲。
+            chart_data: 该合约该周期的增量数据包。
+        """
         if not isinstance(chart_data, dict):
             return
         key = (symbol, dur_ns)
@@ -474,6 +555,17 @@ class DiffClient:
             buffer["ready"].set()
 
     def _dispatch_quote(self, symbol: str, snapshot: dict) -> None:
+        """把合并后的报价快照推向两个出口：本地等待事件 + 上层回调。
+
+        - 若有协程正在等该合约的首笔报价（_quote_events），置位唤醒它；
+        - 无最新价（休市初始化包）则跳过回调；datetime 为纳秒时转毫秒；
+        - 经 to_market_quote 转成 market.MarketQuote 后触发 on_quote_change，
+          由外层写缓存并广播给前端。
+
+        Args:
+            symbol: 合约代码。
+            snapshot: 合并后的报价快照（data_lock 内拷贝出的独立副本）。
+        """
         event = self._quote_events.get(symbol)
         if event is not None:
             event.set()
@@ -492,6 +584,23 @@ class DiffClient:
     # ------------------------------------------------------------ 命令实现（协程，事件循环内并发）
 
     async def _execute(self, command: str, args: tuple) -> Any:
+        """命令分发表：把 run_command 的命令名路由到对应协程实现。
+
+        支持的命令（与旧 TqClient 对齐）：
+            subscribe/unsubscribe/subscribed —— 行情订阅管理；
+            get_instrument/get_instruments_info/query_instruments —— 合约目录查询；
+            get_kline —— K 线查询；query_options —— C 路线未实现，明确报错。
+
+        Args:
+            command: 命令名。
+            args: 参数元组（按各命令实现的解包顺序）。
+
+        Returns:
+            各命令协程的返回值。
+
+        Raises:
+            TqClientError: 未知命令。
+        """
         if command == "subscribe":
             return await self._subscribe(args[0])
         if command == "unsubscribe":
@@ -514,6 +623,14 @@ class DiffClient:
         raise TqClientError(f"未知命令：{command}")
 
     def _file_entry(self, symbol: str) -> Optional[dict]:
+        """按大小写候选在目录里查找合约的精简 record。
+
+        Args:
+            symbol: 任意大小写的合约代码。
+
+        Returns:
+            命中的精简 record（含 symbol/exchange/name/price_tick 等）；未命中返回 None。
+        """
         with self._data_lock:
             file_data = self._symbol_file
         for candidate in _candidates(symbol):
@@ -523,6 +640,11 @@ class DiffClient:
         return None
 
     async def _resend_subscribe(self) -> None:
+        """把当前订阅表整体重发给服务器（subscribe_quote）。
+
+        服务器端订阅是全量语义：每次重发完整 ins_list（逗号分隔）即可完成
+        增/删订阅与断线重放，无需本地记录与服务器侧的差量。空表不发。
+        """
         with self._data_lock:
             ins_list = ",".join(sorted(self._subscribed))
         pack = {"aid": "subscribe_quote", "ins_list": ins_list}
@@ -556,6 +678,24 @@ class DiffClient:
 
 
     async def _subscribe(self, symbol: str) -> str:
+        """订阅一只合约的行情推送，返回规范化后的合约代码。
+
+        订阅完全不依赖合约目录文件（只依赖规范代码）：
+        - 目录已就绪且命中 → 顺便校验过期（过期即拒绝），取规范代码；
+        - 目录未就绪或未命中 → 用 _candidates 规范化后直接订阅，
+          行情服务器会校验合约是否存在——避免"目录下载中"阻塞订阅、拖慢首笔价格。
+        订阅成功后主动重放本地已有快照：休市时段服务器不再推 diffs，
+        这样页面订阅后立刻有行情可见。
+
+        Args:
+            symbol: 用户输入的合约代码（大小写随意）。
+
+        Returns:
+            规范化后的合约代码（如 "SHFE.rb2610"）。
+
+        Raises:
+            TqClientError: 目录判定合约已过期，或输入无法规范化。
+        """
         # 订阅行情完全不依赖合约目录文件（只依赖规范代码）。
         # 目录是否就绪不影响订阅：就绪则顺便校验过期/名称，未就绪直接用 _candidates 规范化订阅，
         # 行情服务器会校验合约是否存在并推送行情——避免"目录下载中"阻塞订阅、拖慢价格出现。
@@ -585,6 +725,7 @@ class DiffClient:
         return canonical
 
     async def _unsubscribe(self, symbol: str) -> None:
+        """退订一只合约：从订阅表移除并清掉其报价快照与等待事件，重发订阅表。"""
         with self._data_lock:
             self._subscribed.discard(symbol)
             self._quotes.pop(symbol, None)
@@ -593,6 +734,16 @@ class DiffClient:
         return None
 
     async def _get_instrument(self, symbol: str) -> dict:
+        """查询单只合约的完整 record（最多等目录 60 秒）。
+
+        Returns:
+            该合约的精简 record 副本。
+
+        Raises:
+            TqClientError: 目录未就绪（超时），或目录未完整且本地未命中
+                （此时无法断言"不存在"，交给行情服务确认）。
+            SymbolNotFoundError: 目录已完整而本地确无此合约（严格拒绝）。
+        """
         if not await self._wait_file(60.0):
             raise TqClientError("合约目录后台下载中，请稍候重试")
         record = self._file_entry(symbol)
@@ -604,6 +755,14 @@ class DiffClient:
         return dict(record)
 
     async def _get_instruments_info(self, symbols: list[str]) -> dict:
+        """批量查询合约 record（目录就绪前提下，未命中的键静默跳过）。
+
+        Args:
+            symbols: 合约代码列表。
+
+        Returns:
+            {symbol: record}，只含命中的条目。
+        """
         if not await self._wait_file(60.0):
             raise TqClientError("合约目录后台下载中，请稍候重试")
         output: dict[str, dict] = {}
@@ -614,6 +773,14 @@ class DiffClient:
         return output
 
     async def _query_instruments(self) -> list[str]:
+        """列出全部可交易的国内期货代码（排序返回，供合约列表页浏览）。
+
+        过滤规则：kind 必须为 FUTURE 且未过期；剔除 KQD. 外盘主连；
+        剔除不符合 "交易所.品种+数字" 形态的特珠代码（指数/期权由前缀过滤自然排除）。
+
+        Returns:
+            排序后的合约代码列表（如 ["CFFEX.IF2609", "DCE.m2609", ...]）。
+        """
         if not await self._wait_file(60.0):
             raise TqClientError("合约目录后台下载中，请稍候重试")
         with self._data_lock:
@@ -633,6 +800,29 @@ class DiffClient:
         return sorted(symbols)
 
     async def _get_kline(self, symbol: str, period: int, count: int) -> list[dict]:
+        """拉取一只合约最近 count 根 K 线（不依赖合约目录，目录未就绪也可用）。
+
+        流程：
+        1. 定位/创建该 (symbol, duration) 的图表缓冲；无水位线（last_id<0）说明
+           服务器尚未确认图表——注意合约服务就绪前发的 set_chart 会被前置丢弃，
+           因此每 2 秒重发一次 set_chart，直到返回 last_id（实测 2~6 秒内就绪）；
+        2. 检查 [last_id-fetch_length+1, last_id] 区间内的缺行，等增量补齐
+           （最多 10 秒），仍缺则报"数据不完整"；
+        3. 逐行经 parse_kline_row 解析成标准 K 线 dict；服务器确认了图表却无任何
+           有效行时，明确抛"历史不可用"，绝不允许上层用快照/模拟数据顶替历史。
+
+        Args:
+            symbol: 合约代码。
+            period: K 线周期（秒），如 60/300/86400。
+            count: 需要的根数；实际拉取量至少 400 根（为增量合并留缓冲）。
+
+        Returns:
+            升序的标准 K 线列表（至多 count 根），每根含
+            datetime(ms)/open/high/low/close/volume/open_interest。
+
+        Raises:
+            TqClientError: 图表初始化超时、数据不完整或历史不可用。
+        """
         # K 线不依赖合约目录文件：目录还在后台下载时也应可用。
         # 诊断（P0-HISTORY_EMPTY 定位）：TQ_GATEWAY_DEBUG=1 时输出请求ID/等待/行数/异常的结构化日志。
         req_id = self._kline_seq = getattr(self, "_kline_seq", 0) + 1
