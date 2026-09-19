@@ -47,3 +47,4 @@ mobile-app/app/src/main/python/**/__pycache__/
 mobile-app/keystore.properties
 *.keystore
 *.jks
+ui_dump.xml

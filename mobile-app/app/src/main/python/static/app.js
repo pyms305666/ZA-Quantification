@@ -527,7 +527,7 @@ $("login-save").addEventListener("click", saveLogin);
 $("login-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });
 $("logout").addEventListener("click", logout);
 /* "我的"页：K线默认周期（点按循环切换并持久化）与使用说明浮层 */
-$("me-period").addEventListener("click", () => {
+$("me-period-row").addEventListener("click", () => {
   const idx = KLINE_PERIODS.findIndex(x => x.p === state.period);
   setPeriod(KLINE_PERIODS[(idx + 1) % KLINE_PERIODS.length].p);
 });

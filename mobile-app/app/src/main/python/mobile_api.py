@@ -301,7 +301,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
     async def index(request):
         if hub.static_dir and (hub.static_dir / "index.html").exists():
-            return FileResponse(hub.static_dir / "index.html")
+            # no-cache：允许缓存但每次必须回源校验（ETag/Last-Modified），换包后必拿新版
+            # index.html，进而由 ?v= 版本参数带出新版 js/css。v1.1.3 真机发现：vivo 恢复
+            # 应用数据会把旧 WebView 缓存一起还原，裸 FileResponse 的旧前端被长期钉死。
+            return FileResponse(hub.static_dir / "index.html",
+                                headers={"Cache-Control": "no-cache"})
         return _json({"name": "ZA量化 移动版", "route": hub.route})
 
     @asynccontextmanager

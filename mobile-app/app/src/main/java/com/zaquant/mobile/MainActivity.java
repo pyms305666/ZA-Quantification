@@ -26,9 +26,14 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         web = new WebView(this);
+        // USB 调试辅助：允许 chrome://inspect 检查 WebView（发布审计时可移除）
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true);
         web.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);   // 模拟器软渲染，避免硬件加速合成黑屏
         WebSettings st = web.getSettings();
         st.setJavaScriptEnabled(true);
+        // 后端在本机 127.0.0.1:8000，缓存只会造成"升级后旧前端被钉死"（v1.1.3 真机教训：
+        // WebView 启发式缓存 + OEM 数据恢复让旧 index/app.js 长期不回源），本地加载代价可忽略
+        st.setCacheMode(WebSettings.LOAD_NO_CACHE);
         st.setDomStorageEnabled(true);
         setContentView(web);
         web.loadDataWithBaseURL(null,
