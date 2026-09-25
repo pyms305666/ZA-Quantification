@@ -40,10 +40,13 @@ public class BackendService extends Service {
     public void onCreate() {
         super.onCreate();
         createChannel();
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, CHANNEL_ID)
+                : new Notification.Builder(this);
+        Notification notification = builder
                 .setContentTitle("ZA量化")
                 .setContentText("行情连接保持中")
-                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setPriority(Notification.PRIORITY_LOW)
                 .setOngoing(true)
                 .build();

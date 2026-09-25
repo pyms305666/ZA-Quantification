@@ -64,3 +64,17 @@ cd mobile-app
   （`MainActivity.java` 设置，`config.py`/`backend_main.py` 读取），凭据与合约缓存都写在那里。
 - 合约目录采用 gzip 下载 + ijson 流式解析 + pickle 精简索引（`tqdiff/symbol_index.py`），
   索引文件约 25MB，二次启动秒级加载；原始 .gz 约 8.3MB 也保留在私有目录。
+
+## 应用图标与后台运行
+
+- Launcher 图标的可编辑母版为 `../assets/icon-android.svg`。Android 资源位于
+  `app/src/main/res/mipmap-anydpi/`（API 24/25 矢量图标）、
+  `mipmap-anydpi-v26/`（自适应图标）和 `drawable/`（前景、单色层及通知小图标）。
+  矢量资源在支持的屏幕密度下由系统绘制，无需维护多套 PNG。
+- Manifest 引用 `@mipmap/ic_launcher` 和 `@mipmap/ic_launcher_round`；前台服务通知使用
+  `@drawable/ic_notification`。打包后用 `aapt dump badging` 检查应用图标非空。
+- vivo V2528A（Android 16）真机验证发现：系统“后台耗电管理”若选中“智能控制后台耗电”，
+  锁屏后可能冻结本应用，即使前台服务与 WakeLock 已启动、应用也在电池优化白名单中。
+  在**设置 → 应用 → ZA量化 → 电量 → 后台耗电管理**中改为“允许后台耗电”后，
+  约 70 秒锁屏期间本机状态接口保持可响应。此设置会增加后台耗电；换设备或系统升级后
+  应重新验证。
