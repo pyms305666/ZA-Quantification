@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from .model import MarketQuote, QuoteLevel, split_symbol
@@ -29,6 +30,14 @@ def _epoch_ms(value: Any) -> Optional[int]:
     if value is None:
         return None
     # TqSdk 的 datetime 是 numpy.datetime64(ns)，转成 epoch 毫秒。
+    if isinstance(value, str) and "-" in value:
+        try:
+            dt = datetime.fromisoformat(value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone(timedelta(hours=8)))
+            return int(dt.timestamp() * 1000)
+        except ValueError:
+            return None
     astype = getattr(value, "astype", None)
     if astype is not None:
         try:
@@ -69,6 +78,13 @@ def to_market_quote(symbol: str, quote: Any) -> Optional[MarketQuote]:
     last = _number(getattr(quote, "last_price", None))
     if last is None:
         return None
+    trading_time = getattr(quote, "trading_time", None)
+    if not isinstance(trading_time, dict):
+        trading_time = {key: getattr(trading_time, key, []) for key in ("day", "night")}
+    trading_time = {key: [list(pair) for pair in (trading_time.get(key) or [])[:10]
+                          if isinstance(pair, (list, tuple)) and len(pair) == 2
+                          and all(isinstance(v, str) for v in pair)]
+                    for key in ("day", "night") if isinstance(trading_time.get(key), (list, tuple))}
     return MarketQuote(
         symbol=symbol,
         exchange=exchange,
@@ -83,4 +99,7 @@ def to_market_quote(symbol: str, quote: Any) -> Optional[MarketQuote]:
         open_interest=_number(getattr(quote, "open_interest", None)),
         bid=_levels(quote, "bid"),
         ask=_levels(quote, "ask"),
+        pre_open_interest=_number(getattr(quote, "pre_open_interest", None)),
+        trading_time=trading_time,
+        expire_datetime=_number(getattr(quote, "expire_datetime", None)),
     )

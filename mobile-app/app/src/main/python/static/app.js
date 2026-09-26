@@ -13,6 +13,7 @@ const state = {
   kline: [],
   quote: null,
   decision: null,
+  decisionReq: 0,
   instruments: [],
   watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
   screen: "quotes",
@@ -261,7 +262,14 @@ function pctOf(v, ref) { return ref ? ((v - ref) / ref * 100).toFixed(2) : "--";
  * @param {Object|null} d 评估结果；null 或 pending=true 时显示占位 "--"
  */
 function renderDecision(d) {
-  if (!d || d.pending) { $("dd-dir").textContent = "--"; return; }
+  if (!d || d.pending) {
+    for (const id of ["dd-dir", "dd-score", "dd-entry", "dd-stop", "dd-t1", "dd-t2", "dd-lots", "dd-risk", "dd-whycount"])
+      $(id).textContent = "--";
+    $("dd-why").replaceChildren();
+    $("dd-bar-l").style.width = "50%";
+    $("dc-quick").classList.add("hidden");
+    return;
+  }
   const cls = d.direction === "做多" ? "up" : d.direction === "做空" ? "down" : "amber";
   $("dd-dir").textContent = d.direction;
   $("dd-dir").className = "d " + cls;
@@ -273,17 +281,25 @@ function renderDecision(d) {
     $(id).textContent = d[key] == null ? "待信号" : fmt(d[key]);
   $("dd-risk").textContent = d.risk_amount == null ? "待信号" : `¥${fmt(d.risk_amount, 0)} (${d.risk_percent}%)`;
   $("dd-whycount").textContent = `评估依据 · ${(d.rationale || []).length} 条`;
-  $("dd-why").innerHTML = (d.rationale || []).map(r => `<li>${r}</li>`).join("") || "<li>无</li>";
+  $("dd-why").innerHTML = (d.rationale || []).map(r => `<li>${DecisionControls.escape(r)}</li>`).join("") || "<li>无</li>";
 }
 /**
  * 渲染 K线页底部的"决策速览"抽屉（方向/评分/关键价位精简版）。
  * @param {Object} d 评估结果（非 pending）
  */
 function renderQuickPanel(d) {
+  let note = $("dc-profile-note");
+  if (!note) {
+    note = document.createElement("div");
+    note.id = "dc-profile-note";
+    note.className = "dp-warning";
+    $("dc-quick").append(note);
+  }
+  note.textContent = `${d.holding || ""}。${(d.warnings || []).join(" ")}${!d.data_ok ? " 历史数据不足，暂不评估。" : ""}`;
   const cls = d.direction === "做多" ? "up" : d.direction === "做空" ? "down" : "amber";
   $("dc-dir").textContent = d.direction;
   $("dc-dir").className = "d " + cls;
-  $("dc-score").textContent = `多 ${d.score_long} · 空 ${d.score_short} · 总分 ${d.score}`;
+  $("dc-score").textContent = `${d.mode_label || ""} · 多 ${d.score_long} · 空 ${d.score_short}${d.quote_fresh === false ? " · 历史行情" : ""}`;
   const total = Math.max(1, d.score_long + d.score_short);
   document.querySelector(".dcq-bar .l").style.width = (d.score_long / total * 100) + "%";
   for (const [id, key] of [["dc-entry", "entry"], ["dc-stop", "stop"], ["dc-t1", "target1"], ["dc-t2", "target2"]])
@@ -310,19 +326,26 @@ async function loadKline() {
  * 同样带 reqId 序号防乱序。
  */
 async function loadDecision() {
-  const reqId = ++state.decisionReq || (state.decisionReq = 1);
+  const reqId = ++state.decisionReq, symbol = state.symbol;
   try {
-    const d = await api(`/api/v1/decision/${encodeURIComponent(state.symbol)}`, 45000);
-    if (reqId !== state.decisionReq) return;
+    const d = await DecisionControls.request(symbol);
+    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
     state.decision = d;
+    DecisionControls.renderMeta(d);
     renderDecision(d.pending ? null : d);
     if (!d.pending) renderQuickPanel(d);
   } catch (e) {
-    if (reqId !== state.decisionReq) return;
-    $("dd-dir").textContent = "--";
-    console.log("decision:", e.message);
+    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
+    state.decision = null;
+    renderDecision(null);
+    DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
   }
 }
+window.addEventListener("decisionprofilechange", () => {
+  state.decision = null;
+  renderDecision(null);
+  loadDecision();
+});
 /**
  * 拉取合约目录列表（搜索/全量浏览）。
  * 目录未就绪（catalogReady=false）时不请求、不报错——只展示"下载中"提示，
@@ -484,6 +507,7 @@ function switchSymbol(symbol) {
   if (symbol === state.symbol) { showScreen("kline"); return; }
   state.symbol = symbol;
   state.decision = null; state.kline = [];
+  DecisionControls.renderMeta(null);
   if (!state.watchlist.includes(symbol)) {
     state.watchlist.push(symbol);
     localStorage.setItem("watchlist", JSON.stringify(state.watchlist));

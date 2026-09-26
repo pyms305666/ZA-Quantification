@@ -113,6 +113,8 @@ class InstrumentManager:
                         expired=record["expired"],
                         price_tick=record["price_tick"],
                         volume_multiple=record["volume_multiple"],
+                        expire_rest_days=record.get("expire_rest_days"),
+                        expire_datetime=record.get("expire_datetime"),
                     )
         output: list[Instrument] = []
         for symbol in candidates:
@@ -171,6 +173,7 @@ class InstrumentManager:
             price_tick=record["price_tick"],
             volume_multiple=record["volume_multiple"],
             expire_rest_days=record.get("expire_rest_days"),
+            expire_datetime=record.get("expire_datetime"),
         )
         with self._lock:
             self._info_cache[normalized] = item

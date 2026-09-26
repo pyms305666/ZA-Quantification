@@ -1,0 +1,20 @@
+[
+  {
+    "port": 18080,
+    "connected": true,
+    "quote": true,
+    "kline_count": 30,
+    "search": true,
+    "websocket_hello_pong": true,
+    "catalog_complete": false
+  },
+  {
+    "port": 18081,
+    "connected": true,
+    "quote": true,
+    "kline_count": 30,
+    "search": true,
+    "websocket_hello_pong": true,
+    "catalog_complete": true
+  }
+]

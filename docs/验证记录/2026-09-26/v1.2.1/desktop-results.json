@@ -1,0 +1,112 @@
+{
+  "results": [
+    {
+      "mode": "ultra",
+      "data_ok": true,
+      "quote_fresh": false,
+      "contracts": null,
+      "requirements": [
+        {
+          "period": "1分钟",
+          "required": 30,
+          "available": 200
+        },
+        {
+          "period": "5分钟",
+          "required": 60,
+          "available": 200
+        },
+        {
+          "period": "15分钟",
+          "required": 60,
+          "available": 200
+        }
+      ],
+      "warnings": [
+        "行情时间缺失或已过期：仅展示历史技术方向，不提供当前开仓手数。",
+        "未取得有效交易时段，无法确认收盘时间；请核对交易所安排。",
+        "计划持有5–30分钟且不隔夜；系统仅作提示，不会自动平仓。"
+      ]
+    },
+    {
+      "mode": "short",
+      "data_ok": true,
+      "quote_fresh": false,
+      "contracts": null,
+      "requirements": [
+        {
+          "period": "15分钟",
+          "required": 30,
+          "available": 200
+        },
+        {
+          "period": "60分钟",
+          "required": 60,
+          "available": 200
+        },
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 200
+        }
+      ],
+      "warnings": [
+        "行情时间缺失或已过期：仅展示历史技术方向，不提供当前开仓手数。",
+        "未取得有效交易时段，无法确认收盘时间；请核对交易所安排。"
+      ]
+    },
+    {
+      "mode": "medium",
+      "data_ok": true,
+      "quote_fresh": false,
+      "contracts": null,
+      "requirements": [
+        {
+          "period": "60分钟",
+          "required": 30,
+          "available": 200
+        },
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 233
+        },
+        {
+          "period": "周线",
+          "required": 35,
+          "available": 47
+        }
+      ],
+      "warnings": [
+        "行情时间缺失或已过期：仅展示历史技术方向，不提供当前开仓手数。",
+        "未取得有效交易时段，无法确认收盘时间；请核对交易所安排。",
+        "距到期约18个自然日，可能无法覆盖2–4 周；请核对交割及经纪商提前平仓要求。"
+      ]
+    },
+    {
+      "mode": "long",
+      "data_ok": true,
+      "quote_fresh": false,
+      "contracts": null,
+      "requirements": [
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 233
+        },
+        {
+          "period": "周线",
+          "required": 35,
+          "available": 47
+        }
+      ],
+      "warnings": [
+        "行情时间缺失或已过期：仅展示历史技术方向，不提供当前开仓手数。",
+        "未取得有效交易时段，无法确认收盘时间；请核对交易所安排。",
+        "距到期约18个自然日，可能无法覆盖1–3 个月；请核对交割及经纪商提前平仓要求。"
+      ]
+    }
+  ],
+  "page_errors": [],
+  "version": "1.2.1"
+}

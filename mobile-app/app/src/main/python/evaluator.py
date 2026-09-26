@@ -15,11 +15,14 @@
 from __future__ import annotations
 
 import math
+import re
+import time
 from typing import Optional
 
 from config import RiskConfig
 from .indicators import atr, boll, ema, kdj, macd, rsi, sma
 from .model import Instrument
+from .decision_profiles import LABELS, PROFILES, prepare, validate_risk
 
 PERIOD_DAILY = 86400
 PERIOD_H60 = 3600
@@ -97,7 +100,7 @@ def _macd_state(closes: list[float]) -> int:
     return 0
 
 
-def _trend_factor(daily: list[dict], h60: list[dict]) -> tuple[float, float, list[str]]:
+def _trend_factor(daily: list[dict], h60: list[dict], trend_windows=(20, 60)) -> tuple[float, float, list[str]]:
     """趋势因子（满分 40）。返回 (多分, 空分, 依据列表)。"""
     long_score, short_score = 0.0, 0.0
     notes: list[str] = []
@@ -106,23 +109,23 @@ def _trend_factor(daily: list[dict], h60: list[dict]) -> tuple[float, float, lis
 
     # 日线（24 分）
     if len(daily_closes) >= 30:
-        ema20, ema60 = ema(daily_closes, 20), ema(daily_closes, 60)
+        ema20, ema60 = ema(daily_closes, trend_windows[0]), ema(daily_closes, trend_windows[1])
         ma_state = _ma_state(ema20, ema60, daily_closes[-1])
         macd_state = _macd_state(daily_closes)
         if ma_state > 0:
             long_score += 6
-            notes.append("日线 EMA20>EMA60 多头排列（+6）")
+            notes.append(f"日线 EMA{trend_windows[0]}>EMA{trend_windows[1]} 多头排列（+6）")
         elif ma_state < 0:
             short_score += 6
-            notes.append("日线 EMA20<EMA60 空头排列（+6）")
+            notes.append(f"日线 EMA{trend_windows[0]}<EMA{trend_windows[1]} 空头排列（+6）")
         if ema20 is not None:
             threshold = max(abs(daily_closes[-1]), 1.0) * 0.0005
             if daily_closes[-1] > ema20 + threshold:
                 long_score += 6
-                notes.append("日线收盘站上 EMA20（+6）")
+                notes.append(f"日线收盘站上 EMA{trend_windows[0]}（+6）")
             elif daily_closes[-1] < ema20 - threshold:
                 short_score += 6
-                notes.append("日线收盘跌破 EMA20（+6）")
+                notes.append(f"日线收盘跌破 EMA{trend_windows[0]}（+6）")
         if macd_state > 0:
             long_score += 6
             notes.append("日线 MACD 金叉（+6）")
@@ -153,8 +156,8 @@ def _trend_factor(daily: list[dict], h60: list[dict]) -> tuple[float, float, lis
         elif macd_state < 0:
             short_score += 4
             notes.append("60分 MACD 死叉（+4）")
-        daily_ema20 = ema(daily_closes, 20) if len(daily_closes) >= 30 else None
-        daily_ema60 = ema(daily_closes, 60) if len(daily_closes) >= 30 else None
+        daily_ema20 = ema(daily_closes, trend_windows[0]) if len(daily_closes) >= 30 else None
+        daily_ema60 = ema(daily_closes, trend_windows[1]) if len(daily_closes) >= 30 else None
         daily_state = _ma_state(daily_ema20, daily_ema60, daily_closes[-1] if daily_closes else 0.0)
         if daily_state > 0 and ma_state > 0:
             long_score += 8
@@ -179,7 +182,7 @@ def _momentum_factor(m5: list[dict], h60: list[dict]) -> tuple[float, float, lis
         breakout_low = min(m5_lows[-21:-1])
         if m5_closes[-1] > breakout_high:
             long_score += 8
-            notes.append(f"5分钟放量突破20根高点 {breakout_high:.2f}（+8）")
+            notes.append(f"5分钟突破20根高点 {breakout_high:.2f}（+8）")
         elif m5_closes[-1] < breakout_low:
             short_score += 8
             notes.append(f"5分钟跌破20根低点 {breakout_low:.2f}（+8）")
@@ -257,7 +260,7 @@ def _volume_oi_factor(m5: list[dict], daily: list[dict], quote: dict) -> tuple[f
                 falling = change < 0
             else:
                 falling = quote["direction"] == "sell"
-            if falling:
+            if not falling:
                 long_score += 4
                 notes.append("持仓量减少但价格上行，空头离场（+4）")
             else:
@@ -307,7 +310,7 @@ def _risk_factor(m5: list[dict], daily: list[dict], quote: dict) -> tuple[float,
 
 
 def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
-             risk: RiskConfig) -> dict:
+             risk: RiskConfig, mode: str = "legacy", now_ms=None) -> dict:
     """综合评估一个合约：多因子打分 → 方向判定 → 止损/目标/手数计算。
 
     Args:
@@ -319,10 +322,23 @@ def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
     Returns:
         评估结果 dict：direction（做多/做空/观望）、score_long/score_short/score、
         entry/stop/target1/target2（均按 tick 取整）、contracts（按单笔风险反推的
-        手数，至少 1 手）、rationale（评分依据的可读列表，直接供前端展示）、
+        手数；一手超出风险预算时为 0）、rationale（评分依据的可读列表，直接供前端展示）、
         data_ok（数据是否充足；False 时所有交易参数为 None）。
         数据不足（K 线 <30 根或无最新价）时返回观望且 data_ok=False，绝不硬评。
     """
+    risk = validate_risk(risk)
+    if mode != "legacy" and mode not in PROFILES:
+        raise ValueError("不支持的评估模式")
+    metadata = {"mode": "legacy", "mode_label": "原版综合", "warnings": [],
+                "atr_period": "5分钟", "min_score": MIN_SCORE, "min_gap": MIN_GAP}
+    missing = []
+    profile = None
+    if mode != "legacy":
+        now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+        profile, prepared, missing, metadata = prepare(mode, klines, quote, instrument, now_ms)
+        klines = {PERIOD_DAILY: prepared.get(profile["trend"], []),
+                  PERIOD_H60: prepared.get(profile["confirm"], []),
+                  PERIOD_M5: prepared.get(profile["execution"], [])}
     # 清洗：剔除缺失关键价格的 K 线（部分免费行情字段可能缺失）。
     klines = {period: [bar for bar in bars if bar.get("close") is not None]
               for period, bars in klines.items()}
@@ -331,8 +347,9 @@ def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
     m5 = klines.get(PERIOD_M5) or []
     last = float(quote.get("last") or 0)
 
-    if last <= 0 or len(m5) < 30 or len(h60) < 30 or len(daily) < 30:
+    if not math.isfinite(last) or last <= 0 or missing or len(m5) < 30 or len(h60) < 30 or len(daily) < 30:
         return {
+            **metadata,
             "pending": False,
             "direction": SIGNAL_FLAT, "direction_en": "FLAT",
             "score_long": 0, "score_short": 0, "score": 0,
@@ -340,55 +357,82 @@ def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
             "stop": None, "target1": None, "target2": None, "target_points": None,
             "risk_amount": None, "risk_percent": None, "contracts": None,
             "multiplier": instrument.volume_multiple, "tick_size": instrument.price_tick,
-            "rationale": ["历史K线或实时行情不足，暂不评估"], "data_ok": False,
+            "rationale": ["历史K线或实时行情不足，暂不评估"] + missing, "data_ok": False,
         }
 
-    trend_long, trend_short, trend_notes = _trend_factor(daily, h60)
+    trend_long, trend_short, trend_notes = _trend_factor(daily, h60, (10, 20) if mode in ("medium", "long") else (20, 60))
     momentum_long, momentum_short, momentum_notes = _momentum_factor(m5, h60)
-    volume_long, volume_short, volume_notes = _volume_oi_factor(m5, daily, quote)
+    volume_quote = quote
+    if profile:
+        # Align price/OI comparisons with this horizon's completed execution bars.
+        volume_quote = {"last": m5[-1]["close"], "pre_close": m5[-2]["close"],
+                        "open_interest": m5[-1].get("open_interest"),
+                        "pre_open_interest": m5[-2].get("open_interest")}
+    volume_long, volume_short, volume_notes = _volume_oi_factor(m5, m5 if profile else daily, volume_quote)
     risk_long, risk_short, risk_notes = _risk_factor(m5, daily, quote)
 
     score_long = round(trend_long + momentum_long + volume_long + risk_long, 1)
     score_short = round(trend_short + momentum_short + volume_short + risk_short, 1)
     rationale = trend_notes + momentum_notes + volume_notes + risk_notes
+    if profile:
+        replacements = {"日线": LABELS[profile["trend"]], "60分钟": LABELS[profile["confirm"]],
+                        "60分": LABELS[profile["confirm"]], "5分钟": LABELS[profile["execution"]],
+                        "当日": LABELS[profile["execution"]] + "最近一根"}
+        rationale = [re.sub("日线|60分钟|60分|5分钟|当日", lambda m: replacements[m.group()], note)
+                     for note in rationale]
 
     direction = SIGNAL_FLAT
     direction_en = "FLAT"
-    if score_long >= MIN_SCORE and score_long - score_short >= MIN_GAP:
+    min_score, min_gap = metadata["min_score"], metadata["min_gap"]
+    stop_atr = profile["stop_atr"] if profile else 1.5
+    target1_r, target2_r = (profile["target1_r"], profile["target2_r"]) if profile else (1.5, 3.0)
+    if score_long >= min_score and score_long - score_short >= min_gap:
         direction, direction_en = SIGNAL_LONG, "LONG"
-    elif score_short >= MIN_SCORE and score_short - score_long >= MIN_GAP:
+    elif score_short >= min_score and score_short - score_long >= min_gap:
         direction, direction_en = SIGNAL_SHORT, "SHORT"
 
-    tick = float(instrument.price_tick or 1.0)
-    multiplier = int(instrument.volume_multiple or 10)
+    tick = float(instrument.price_tick or 0)
+    multiplier = int(instrument.volume_multiple or 0)
+    valid_contract = math.isfinite(tick) and tick > 0 and multiplier > 0
+    if not valid_contract:
+        metadata["warnings"].append("合约最小变动价位或乘数缺失，无法计算止损和手数。")
     m5_highs, m5_lows, m5_closes = _highs(m5), _lows(m5), _closes(m5)
     atr_value = atr(m5_highs, m5_lows, m5_closes) or (tick * 2)
 
     entry = last
     stop = target1 = target2 = None
     contracts = None
-    if direction != SIGNAL_FLAT:
-        distance = max(atr_value * 1.5, tick * 2)
+    effective_risk = min(float(risk.max_loss_per_trade),
+                         float(risk.account_equity) * float(risk.risk_percent) / 100.0)
+    one_lot_risk = None
+    if direction != SIGNAL_FLAT and valid_contract:
+        distance = max(atr_value * stop_atr, tick * 2)
         if direction == SIGNAL_LONG:
             stop = _round_tick(entry - distance, tick, upward=False)
             distance_actual = entry - stop
-            target1 = _round_tick(entry + distance_actual * 1.5, tick, upward=True)
-            target2 = _round_tick(entry + distance_actual * 3.0, tick, upward=True)
+            target1 = _round_tick(entry + distance_actual * target1_r, tick, upward=True)
+            target2 = _round_tick(entry + distance_actual * target2_r, tick, upward=True)
         else:
             stop = _round_tick(entry + distance, tick, upward=True)
             distance_actual = stop - entry
-            target1 = _round_tick(entry - distance_actual * 1.5, tick, upward=False)
-            target2 = _round_tick(entry - distance_actual * 3.0, tick, upward=False)
-        effective_risk = min(float(risk.max_loss_per_trade),
-                             float(risk.account_equity) * float(risk.risk_percent) / 100.0)
-        raw_count = int(effective_risk // max(distance_actual * multiplier, 1e-9))
-        contracts = max(1, min(int(risk.max_contracts), raw_count))
+            target1 = _round_tick(entry - distance_actual * target1_r, tick, upward=False)
+            target2 = _round_tick(entry - distance_actual * target2_r, tick, upward=False)
+        one_lot_risk = distance_actual * multiplier
+        raw_count = int(effective_risk // max(one_lot_risk, 1e-9))
+        contracts = max(0, min(int(risk.max_contracts), raw_count))
+        if contracts == 0:
+            metadata["warnings"].append("一手预计止损金额已超过本档风险上限，不宜开仓。")
+        if profile and (not metadata["quote_fresh"] or metadata["session"]["status"] == "outside"):
+            contracts = None
+        if instrument.expired or (profile and metadata["expire_rest_days"] == 0):
+            contracts = None
+            metadata["warnings"].append("合约已到期或临近到期不足一天，不提供开仓手数。")
 
     target_points = round(abs(target2 - entry), 2) if target2 is not None else None
-    risk_amount = min(float(risk.max_loss_per_trade),
-                      float(risk.account_equity) * float(risk.risk_percent) / 100.0) if contracts else None
+    risk_amount = round(contracts * one_lot_risk, 8) if contracts is not None and one_lot_risk is not None else None
 
     return {
+        **metadata,
         "pending": False,
         "direction": direction,
         "direction_en": direction_en,
@@ -401,7 +445,9 @@ def evaluate(instrument: Instrument, quote: dict, klines: dict[int, list[dict]],
         "target2": target2,
         "target_points": target_points,
         "risk_amount": risk_amount,
-        "risk_percent": round(risk_amount / risk.account_equity * 100, 2) if risk_amount else None,
+        "risk_percent": round(risk_amount / risk.account_equity * 100, 2) if risk_amount is not None else None,
+        "risk_budget": effective_risk,
+        "one_lot_risk": one_lot_risk,
         "contracts": contracts,
         "multiplier": multiplier,
         "tick_size": tick,

@@ -481,6 +481,7 @@ def parse_instrument_record(symbol: str, entry: dict[str, Any]) -> Optional[dict
         "price_tick": float(price_tick) if price_tick is not None else None,
         "volume_multiple": int(volume_multiple) if volume_multiple is not None else None,
         "expire_rest_days": expire_rest_days,
+        "expire_datetime": float(expire_datetime) if expire_rest_days is not None else None,
     }
 
 

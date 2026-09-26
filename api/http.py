@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from config import Config, save_credentials
 from market.cache import QuoteCache
 from market.evaluator import evaluate
+from market.decision_profiles import parse_request, requests_for, profile_catalog
 from market.model import Instrument
 from tq.client import TqClient, TqClientError
 from tq.instruments import InstrumentManager, normalize_symbol
@@ -199,12 +200,16 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
                 "count": len(bars), "bars": bars}
 
     @router.get("/api/v1/decision/{symbol}")
-    def decision(symbol: str, services: Services = Depends(get_services)) -> dict:
+    def decision(symbol: str, request: Request, services: Services = Depends(get_services)) -> dict:
         """决策评估：实时快照 + 四周期 K 线 → 评估引擎的方向/止损/目标/手数。
 
         目录未就绪时返回 503（≠ 合约不存在，前端稍后重试）；未收到行情时
         返回 pending=True（绝不拿旧数据硬评）。
         """
+        try:
+            mode, risk = parse_request(request.query_params, services.config.risk)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         require_connected(services)
         normalized = normalize_symbol(services.client, symbol)
         if normalized is None:
@@ -219,10 +224,15 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
         if cached is None:
             return {"symbol": normalized, "pending": True, "message": "尚未收到该合约行情，请稍候"}
         klines: dict[int, list[dict]] = {}
-        for period in DECISION_PERIODS:
+        for period, count in requests_for(mode).items():
             klines[period] = services.client.run_command(
-                "get_kline", normalized, period, 200, timeout=30.0)
-        return {"symbol": normalized, **evaluate(instrument, cached.to_dict(), klines, services.config.risk)}
+                "get_kline", normalized, period, count, timeout=30.0)
+        cached = services.cache.get(normalized) or cached
+        return {"symbol": normalized, **evaluate(instrument, cached.to_dict(), klines, risk, mode)}
+
+    @router.get("/api/v1/decision-profiles")
+    def decision_profiles(services: Services = Depends(get_services)) -> dict:
+        return profile_catalog(services.config.risk)
 
     @router.get("/api/v1/quote/{symbol}")
     def quote(symbol: str, services: Services = Depends(get_services)) -> dict:

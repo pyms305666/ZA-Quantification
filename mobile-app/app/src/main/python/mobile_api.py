@@ -22,6 +22,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from config import load_config, save_credentials, clear_credentials
 from market.evaluator import evaluate
+from market.decision_profiles import parse_request, requests_for, profile_catalog
 from tq.client import TqClientError
 from tq.instruments import normalize_symbol
 from services import build_services
@@ -79,18 +80,18 @@ class MobileHub:
     async def unsubscribe_async(self, symbols: list[str]) -> dict:
         return await run_blocking(self.subscriptions.unsubscribe, symbols)
 
-    async def decision_async(self, symbol: str, quote: dict, klines: dict) -> dict:
+    async def decision_async(self, symbol: str, quote: dict, klines: dict, mode="legacy", risk=None) -> dict:
         instrument = await run_blocking(self.instruments.get, symbol)
         if instrument is None:
             return {"pending": False, "data_ok": False,
                     "direction": "观望", "score_long": 0, "score_short": 0,
                     "rationale": ["合约目录未就绪，暂不评估"]}
         return await run_blocking(
-            self._evaluate_blocking, instrument, quote, klines)
+            self._evaluate_blocking, instrument, quote, klines, mode, risk)
 
-    def _evaluate_blocking(self, instrument, quote, klines) -> dict:
+    def _evaluate_blocking(self, instrument, quote, klines, mode="legacy", risk=None) -> dict:
         from market.evaluator import evaluate
-        return evaluate(instrument, quote, klines, self.services.config.risk)
+        return evaluate(instrument, quote, klines, risk or self.services.config.risk, mode)
 
     async def kline_async(self, symbol: str, period: int, count: int) -> list[dict]:
         normalized = await run_blocking(normalize_symbol, self.client, symbol)
@@ -220,6 +221,9 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         symbol = request.path_params["symbol"]
         if not hub.client.connected:
             return _json({"detail": "天勤未连接"}, 503)
+        symbol = await run_blocking(normalize_symbol, hub.client, symbol)
+        if symbol is None:
+            return _json({"detail": "合约代码无法解析"}, 422)
         cached = hub.cache.get(symbol)
         if cached is not None:
             return _json({"symbol": symbol, "data": cached.to_dict(), "pending": False})
@@ -250,17 +254,31 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
     async def decision(request):
         symbol = request.path_params["symbol"]
+        try:
+            mode, risk = parse_request(request.query_params, hub.services.config.risk)
+        except ValueError as error:
+            return _json({"detail": str(error)}, 422)
         if not hub.client.connected:
             return _json({"detail": "天勤未连接"}, 503)
+        symbol = await run_blocking(normalize_symbol, hub.client, symbol)
+        if symbol is None:
+            return _json({"detail": "合约代码无法解析"}, 422)
         cached = hub.cache.get(symbol)
         if cached is None:
             return _json({"symbol": symbol, "pending": True,
                           "message": "尚未收到该合约行情，请稍候"})
         klines: dict[int, list] = {}
-        for period in DECISION_PERIODS:
-            klines[period] = await hub.kline_async(symbol, period, 200)
-        result = await hub.decision_async(symbol, cached.to_dict(), klines)
+        try:
+            for period, count in requests_for(mode).items():
+                klines[period] = await hub.kline_async(symbol, period, count)
+            cached = hub.cache.get(symbol) or cached
+            result = await hub.decision_async(symbol, cached.to_dict(), klines, mode, risk)
+        except TqClientError as error:
+            return _json({"detail": str(error)}, 503)
         return _json({"symbol": symbol, **result})
+
+    async def decision_profiles(request):
+        return _json(profile_catalog(hub.services.config.risk))
 
     async def subscriptions_get(request):
         return _json({"symbols": hub.subscriptions.subscribed()})
@@ -333,6 +351,7 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         Route("/api/v1/quote/{symbol:path}", quote),
         Route("/api/v1/kline/{symbol:path}", kline),
         Route("/api/v1/decision/{symbol:path}", decision),
+        Route("/api/v1/decision-profiles", decision_profiles),
         Route("/api/v1/subscriptions", subscriptions_get, methods=["GET"]),
         Route("/api/v1/subscriptions", subscriptions_post, methods=["POST"]),
         Route("/api/v1/subscriptions/{symbol:path}", subscriptions_delete, methods=["DELETE"]),

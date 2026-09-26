@@ -11,6 +11,7 @@ const state = {
   kline: [],
   quote: null,
   decision: null,
+  decisionReq: 0,
   ws: null,
   instruments: [],
   exchange: "",  // 交易所过滤
@@ -359,7 +360,7 @@ function renderDecision() {
     ["目标二", fmtPrice(d.target2, 2), null],
     ["目标点数", d.target_points != null ? `${d.target_points} 点` : "--", null],
     ["建议手数", d.contracts != null ? `${d.contracts} 手` : "--", null],
-    ["单笔风险", d.risk_amount != null ? `¥${fmtVol(d.risk_amount)}（${d.risk_percent}%）` : "--", null],
+    ["预计止损金额", d.risk_amount != null ? `¥${fmtVol(d.risk_amount)}（${d.risk_percent}%）` : "--", null],
     ["合约乘数", d.multiplier != null ? `${d.multiplier} 元/点` : "--", null],
   ];
   body.innerHTML = `
@@ -449,14 +450,25 @@ async function loadKline() {
 
 /** 拉取决策评估（6 秒轮询；失败在面板内联展示，不弹错误）。 */
 async function loadDecision() {
+  const reqId = ++state.decisionReq, symbol = state.symbol;
   try {
-    state.decision = await fetchJSON(`/api/v1/decision/${encodeURIComponent(state.symbol)}`, null, 45000);
+    const d = await DecisionControls.request(symbol);
+    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
+    state.decision = d;
+    DecisionControls.renderMeta(d);
     renderDecision();
   } catch (e) {
+    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
     state.decision = null;
-    $("decision-body").innerHTML = `<div class="dc-note">评估不可用：${e.message}</div>`;
+    renderDecision();
+    DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
   }
 }
+window.addEventListener("decisionprofilechange", () => {
+  state.decision = null;
+  renderDecision();
+  loadDecision();
+});
 
 /** 轮询网关状态（15 秒）：天勤连接状态与 WS 连接状态两行指示。 */
 async function loadStatus() {
@@ -535,6 +547,7 @@ async function switchSymbol(symbol) {
   state.quote = null;
   state.decision = null;
   $("qb-title").textContent = symbol;
+  DecisionControls.renderMeta(null);
   $("qb-meta").textContent = "";
   renderContractList();
   renderQuoteBar();

@@ -2,6 +2,8 @@
 
 > 国内期货行情读取、图表展示与技术分析评估工具。当前源码版本见 [`VERSION`](VERSION)；本文描述仓库当前代码，不替代 `docs/验证记录/` 中带日期的历史验收记录。
 
+V1.2.1 提供 Windows C 直连版安装包/独立程序和 Android 正式签名 APK，下载见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.1)，测试与打包记录见 [V1.2.1 发布验收](docs/V1.2.1发布验收-2026-09-26.md)。
+
 项目只读取行情、计算指标并生成参考评估，**不提供下单或自动交易能力**。桌面 Web、Electron 和 Android 端均通过本机运行的 Python 行情后端工作；Android 在设备内嵌入 Python，不依赖本项目自建云服务器。
 
 ## 当前状态
@@ -40,7 +42,7 @@ python launcher.py
 | `server.log_level` | `info` | Uvicorn 日志级别 |
 | `risk.account_equity` | `50000` | 评估参数中的账户权益（元） |
 | `risk.max_loss_per_trade` | `900` | 单笔最大亏损（元） |
-| `risk.risk_percent` | `1.8` | 展示用风险比例（%） |
+| `risk.risk_percent` | `1.8` | 单笔风险占权益上限（%），与金额上限取更小值 |
 | `risk.max_contracts` | `10` | 建议手数上限 |
 
 凭据覆盖顺序为环境变量 `TQ_ACCOUNT` / `TQ_PASSWORD`、本机保存的凭据、`config.json`。桌面端安装 `keyring` 时，优先将密码存入 Windows 凭据管理器；凭据管理器不可用、写入失败或设置 `TQ_GATEWAY_KEYRING=off` 时会退回 `.tqsdk/credentials.json` 明文存储。手机端在 App 私有目录保存配置与凭据。请勿提交任何真实凭据。
@@ -51,6 +53,7 @@ python launcher.py
 
 - 合约目录查询、交易所筛选与关键词搜索；目录可从内置精简数据和本地完整缓存恢复，首次补全可能因上游服务限速耗时较长。`/api/v1/status` 提供目录就绪/完整/加载状态。
 - 最新报价、订阅管理、K 线（1/5/15/30/60 分钟及日线）与技术评估。
+- 评估支持超短线（5–30 分钟、不隔夜）、短线（1–3 个交易日）、中线（2–4 周）、长线（1–3 个月）；每档风险可在界面独立修改并保存在本设备，切换评估不改变图表周期。
 - K 线 UI 展示蜡烛图、均线、成交量、持仓量和 MACD；数据是否实时取决于行情连接和市场时段。
 - WebSocket 行情推送：`/ws/market`。
 
@@ -66,10 +69,13 @@ python launcher.py
 | GET | `/api/v1/quote/{symbol}` | 查询最新报价；未订阅时可自动订阅并返回 pending |
 | GET | `/api/v1/kline/{symbol}?period=300&count=200` | 查询 K 线；period 为秒，count 限制在 30–1000 |
 | GET | `/api/v1/decision/{symbol}` | 多周期技术评估 |
+| GET | `/api/v1/decision-profiles` | 四档模式、风险默认值与输入范围 |
 | GET / POST / DELETE | `/api/v1/subscriptions`、`/api/v1/subscriptions/{symbol}` | 查看、添加、删除订阅 |
 | WS | `/ws/market` | 行情变更推送及订阅交互 |
 
 桌面 Web 和 Android API 有少量差异；编写客户端时以对应服务实现为准。评估输出只供技术分析参考，不构成投资建议。
+
+评估接口支持 `mode=ultra/short/medium/long` 和 `account_equity`、`max_loss_per_trade`、`risk_percent`、`max_contracts` 查询参数；不传模式保留原版综合周期。中长线使用当前合约日线聚合的周线，至少需要 35 根完整周线；数据不足会明确提示。详见 [多周期评估实施说明](docs/多周期评估实施-2026-09-26.md)。
 
 ## 桌面入口
 
@@ -128,6 +134,7 @@ dist/                     本机构建/发布产物（若存在）
 python -m unittest discover -s tests -v
 python tools/check_core_drift.py --strict
 Set-Location electron; npm test
+npm run test:decision-ui
 ```
 
 Android 构建需使用上节所列本机 SDK 和 Gradle Wrapper。真实行情、断网恢复、锁屏保活及 UI 行为需要有效天勤账号、合适交易时段和/或 Android 真机；单元测试和 APK 构建不能替代这些验证。项目未包含可据以推断生产网页部署方式的容器或 CI/CD 部署定义。

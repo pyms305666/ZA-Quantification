@@ -54,6 +54,9 @@ class MarketQuote:
     open_interest: Optional[float]  # 持仓量（手）
     bid: list[QuoteLevel] = field(default_factory=list)
     ask: list[QuoteLevel] = field(default_factory=list)
+    pre_open_interest: Optional[float] = None
+    trading_time: dict = field(default_factory=dict)
+    expire_datetime: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +71,9 @@ class MarketQuote:
             "pre_close": self.pre_close,
             "volume": self.volume,
             "open_interest": self.open_interest,
+            "pre_open_interest": self.pre_open_interest,
+            "trading_time": self.trading_time,
+            "expire_datetime": self.expire_datetime,
             "bid": [level.to_dict() for level in self.bid],
             "ask": [level.to_dict() for level in self.ask],
         }
@@ -87,6 +93,7 @@ class Instrument:
     price_tick: Optional[float] = None
     volume_multiple: Optional[int] = None
     expire_rest_days: Optional[int] = None  # 距到期剩余自然日
+    expire_datetime: Optional[float] = None  # 秒级绝对时间，避免目录缓存天数过期
 
     def to_dict(self) -> dict:
         return {
@@ -99,4 +106,5 @@ class Instrument:
             "price_tick": self.price_tick,
             "volume_multiple": self.volume_multiple,
             "expire_rest_days": self.expire_rest_days,
+            "expire_datetime": self.expire_datetime,
         }

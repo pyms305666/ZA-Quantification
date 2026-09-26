@@ -38,12 +38,12 @@ class ServerConfig:
 class RiskConfig:
     """决策系统的资金与风险参数。
 
-    手数 = min(最大手数, 单笔最大亏损 ÷ (止损距离 × 合约乘数))，至少 1 手。
+    金额和权益比例取更严格值；手数向下取整，一手超出预算时为 0。
     """
 
     account_equity: float = 50_000.0  # 账户权益（元）
     max_loss_per_trade: float = 900.0  # 单笔最大亏损（元）——以它为准计算手数
-    risk_percent: float = 1.8  # 展示用：单笔亏损占权益比例（%）
+    risk_percent: float = 1.8  # 单笔亏损占权益的上限（%）
     max_contracts: int = 10  # 单笔最大手数
 
 

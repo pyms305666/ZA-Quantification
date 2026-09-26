@@ -105,7 +105,7 @@ body {
 
 /* 右侧 */
 #right-panel {
-  width: 260px; min-width: 230px; background: var(--surface);
+  width: 320px; min-width: 280px; background: var(--surface);
   border-left: 1px solid var(--border);
   display: flex; flex-direction: column; overflow-y: auto;
 }

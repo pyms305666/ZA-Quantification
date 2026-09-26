@@ -5,6 +5,10 @@
 
 ## 构建环境要求（已验证的组合）
 
+决策页支持超短线、短线、中线、长线四档评估；展开各档“风险设置”可修改权益、单笔金额上限、权益比例和最大手数。设置在本机 WebView 内独立保存，卸载或清除应用数据会丢失；与桌面端不自动同步。图表周期与评估模式独立。
+
+周期定义、指标输入、到期提示及验证范围见 [多周期评估实施说明](../docs/多周期评估实施-2026-09-26.md)。
+
 | 组件 | 版本 | 说明 |
 |---|---|---|
 | JDK | 17（Temurin 17.0.20 验证通过） | `JAVA_HOME` 指向它 |
@@ -22,13 +26,15 @@ cd mobile-app
 #   sdk.dir=E:/android-sdk
 ./gradlew --no-daemon assembleDebug          # 干净机器：wrapper 自动下载 Gradle 8.9
 # 产物：app/build/outputs/apk/debug/app-debug.apk
-# 交付：复制为 dist/ZA量化-手机版-v1.1.3.apk 并记录 SHA-256
+# 调试包不作为正式升级包；正式交付使用下节的 release 构建并记录 SHA-256
 ```
 
 > 本机若无外网下载 Gradle 发行版，可直接用本地已装 Gradle：
 > `E:/tools/gradle-8.2/bin/gradle.bat --no-daemon assembleDebug`
 
 ## release 签名（V1.1.3 起）
+
+当前正式版本 V1.2.1（`versionCode=4`），发布附件为 `ZAQuant-Mobile-v1.2.1.apk`。同签名可覆盖升级 V1.1.3 并保留 App 数据。完整记录见 [V1.2.1 发布验收](../docs/V1.2.1发布验收-2026-09-26.md)。
 
 - 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
   （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。

@@ -123,7 +123,9 @@ class EvaluatorTests(unittest.TestCase):
         self.assertLess(result["stop"], result["entry"])  # type: ignore[operator]
         self.assertGreater(result["target2"], result["target1"])  # type: ignore[operator]
         self.assertGreater(result["target_points"], 0)  # type: ignore[operator]
-        self.assertEqual(result["risk_amount"], 900)
+        self.assertEqual(result["risk_budget"], 900)
+        self.assertLessEqual(result["risk_amount"], result["risk_budget"])
+        self.assertAlmostEqual(result["risk_amount"], result["contracts"] * abs(result["entry"] - result["stop"]) * RB2610.volume_multiple)
         self.assertGreaterEqual(result["contracts"], 1)
         self.assertTrue(result["rationale"])
 

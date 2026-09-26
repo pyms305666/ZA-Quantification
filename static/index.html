@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ZA量化 · 行情与决策</title>
 <link rel="icon" href="/static/favicon.png">
-<link rel="stylesheet" href="/static/style.css?v=1.2.1-c">
+<link rel="stylesheet" href="/static/style.css?v=1.2.1">
 </head>
 <body>
 <div id="app">
   <!-- 顶部工具栏 -->
   <header id="toolbar">
-    <div class="brand">ZA量化 <span class="brand-sub">行情 · 决策 · v1.2.1-c · C直连版</span></div>
+    <div class="brand">ZA量化 <span class="brand-sub">行情 · 决策 · V1.2.1 · C直连版</span></div>
     <div id="periods" class="periods">
       <button data-period="60">1分钟</button>
       <button data-period="300" class="active">5分钟</button>
@@ -77,6 +77,8 @@
       </div>
       <div id="decision" class="panel">
         <div class="panel-title">决策评估</div>
+        <div id="decision-controls"></div>
+        <div id="decision-metadata" aria-live="polite"></div>
         <div id="decision-body"></div>
       </div>
     </aside>
@@ -106,6 +108,8 @@
 </div>
 
 <script src="/static/vendor/echarts.min.js"></script>
-<script src="/static/app.js?v=1.2.1-c"></script>
+<link rel="stylesheet" href="/static/decision-controls.css?v=1.2.1">
+<script src="/static/decision-controls.js?v=1.2.1"></script>
+<script src="/static/app.js?v=1.2.1"></script>
 </body>
 </html>
