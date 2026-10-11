@@ -27,6 +27,7 @@ from tq.client import TqClientError
 from tq.instruments import normalize_symbol
 from services import build_services
 from ws_transport import QuoteIngress, TransportClosed, WebSocketHub
+from app_runtime import configure_logging
 
 
 def run_blocking(func, *args, **kwargs):
@@ -380,10 +381,11 @@ def run_mobile_server(host: str = "127.0.0.1", port: int = 8000,
     """
     import uvicorn
     config = load_config()
+    configure_logging(config)
     hub = MobileHub(config, static_dir)
     app = create_mobile_app(hub)
     server = uvicorn.Server(uvicorn.Config(
-        app, host=host, port=port, log_level="warning", access_log=False))
+        app, host=host, port=port, log_level="warning", access_log=False, log_config=None))
     if on_server is not None:
         on_server(server)
     if should_exit is not None and should_exit():

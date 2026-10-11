@@ -165,6 +165,7 @@ class MobileServerLifecycleTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.stack.enter_context(mock.patch.dict(sys.modules, {"uvicorn": self.uvicorn}))
         self.stack.enter_context(mock.patch.object(self.module, "load_config", return_value=object()))
+        self.stack.enter_context(mock.patch.object(self.module, "configure_logging"))
         self.stack.enter_context(mock.patch.object(self.module, "MobileHub", return_value=object()))
         self.app = object()
         self.stack.enter_context(mock.patch.object(self.module, "create_mobile_app", return_value=self.app))
@@ -180,7 +181,7 @@ class MobileServerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.events, ["register", "run"])
         self.assertEqual(len(registered), 1)
         self.uvicorn.Config.assert_called_once_with(
-            self.app, host="127.0.0.1", port=8000, log_level="warning", access_log=False)
+            self.app, host="127.0.0.1", port=8000, log_level="warning", access_log=False, log_config=None)
 
     def test_persistent_stop_skips_server_run(self):
         registered = []

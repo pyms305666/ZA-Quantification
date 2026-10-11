@@ -35,6 +35,7 @@ from tq.instruments import InstrumentManager, normalize_symbol
 from tq.subscriber import SubscriptionManager
 from .websocket import create_ws_router
 from services import Services, build_services, _broadcast_loop
+from app_runtime import version
 
 KLINE_PERIODS = {
     60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线",
@@ -65,7 +66,7 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
     """
     services = build_services(config)
     services.auto_exit_idle_seconds = auto_exit_idle_seconds
-    app = FastAPI(title="国内期货行情网关", version="0.2.0", lifespan=_lifespan(services))
+    app = FastAPI(title="国内期货行情网关", version=version(), lifespan=_lifespan(services))
     app.state.services = services
 
     @app.exception_handler(TqClientError)

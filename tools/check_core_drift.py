@@ -21,6 +21,8 @@ MOBILE = ROOT / "mobile-app" / "app" / "src" / "main" / "python"
 
 # 两端应保持一致的共享核心（相对路径；缺失一侧也会被报告）
 SHARED = [
+    "app_runtime.py",
+    "VERSION",
     "ws_transport.py",
     "services.py",
     "market/__init__.py",
