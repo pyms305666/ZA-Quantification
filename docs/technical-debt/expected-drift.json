@@ -1,0 +1,37 @@
+{
+  "api/http.py": {
+    "reason": "桌面 FastAPI REST 层；Android 使用 mobile_api.py 的 Starlette 实现。",
+    "desktop_sha256": "ac55759d9d2ffb2bfa97fc0dbe1b69742899fccdcc67b7c8e600c142bcfa788a",
+    "android_sha256": null
+  },
+  "api/websocket.py": {
+    "reason": "Android 保留接口 stub 避免 FastAPI/pydantic 原生依赖，传输使用共享 ws_transport。",
+    "desktop_sha256": "32c1a5c3ff3c3b120168ba0eec404e7a28b66dc2174f772ffdb593c90ebfc1bd",
+    "android_sha256": "cece05432b757874c187742d2c2f588a4ee57ac07df95871a8639090371da1fc"
+  },
+  "config.py": {
+    "reason": "冻结配置分叉：桌面凭据管理器与 Android 私有目录/clear_credentials，不同步风险参数。",
+    "desktop_sha256": "8f6b1a5a24d921d04f29b503970d2a9e746d3810e56591a50a0215e256f8a814",
+    "android_sha256": "2b9a2a51aadb9228647763c5d3fd2df45107f50aff2962ea01bfe00d4357b91b"
+  },
+  "static/app.js": {
+    "reason": "桌面和手机布局、交互入口不同，共享 decision-controls 与 market-connection。",
+    "desktop_sha256": "bdcc78e785f34308d6c0dec88214e261948163d089a5a5d6757577120d3343f2",
+    "android_sha256": "f61dc86fd1e4e04484dfa70761bb058702719820833e6217afd861f7064bea0b"
+  },
+  "static/index.html": {
+    "reason": "桌面与手机页面结构不同。",
+    "desktop_sha256": "4825f832db00c2879778860835fec3f516c79e73400829ff0b4e64a70848a0c3",
+    "android_sha256": "51bb489a998025925d1dbaa40465b34584406295ccbe0846f6885b5840115223"
+  },
+  "static/style.css": {
+    "reason": "桌面与手机布局适配不同。",
+    "desktop_sha256": "2d5a35734e180ace1529633cf4a76063f905b59392f5386697897ac3c3c5acf2",
+    "android_sha256": "856551a0f6226732490c25339f5f1b4b97bfe715b87cc6af81cd0b6b5499f8b1"
+  },
+  "static/favicon.png": {
+    "reason": "桌面浏览器图标，Android 使用原生应用图标。",
+    "desktop_sha256": "11c163e442b2754667e3064af9d1e384c194d661b55413b5950b856008ca9b6d",
+    "android_sha256": null
+  }
+}

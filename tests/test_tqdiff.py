@@ -123,6 +123,13 @@ class KlineDiffMergeTests(unittest.TestCase):
 
     DUR = 60_000_000_000
 
+    def setUp(self):
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self.addCleanup(asyncio.set_event_loop, None)
+        self.addCleanup(loop.close)
+
     def _client_with_chart(self):
         from tqdiff.client import DiffClient
         import asyncio

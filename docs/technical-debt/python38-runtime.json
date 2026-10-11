@@ -1,0 +1,9 @@
+{
+  "source_url": "https://www.python.org/ftp/python/3.8.10/python-3.8.10-embed-amd64.zip",
+  "official_md5": "3acb1d7d9bde5a79f840167b166bb633",
+  "download_sha256": "abbe314e9b41603dde0a823b76f5bbbe17b3de3e5ac4ef06b759da5466711271",
+  "runtime": "CPython 3.8.10 Windows embedded",
+  "usage": "Ignored isolated test tool; no installer, registry changes or existing environment upgrades",
+  "dependency_source": "E:\\codx project\\\u671f\u8d27\u8bc4\u4f30\u5668\\mobile-app\\app\\build\\python\\pip\\release\\common",
+  "limitation": "Shared source/runtime compatibility only; does not validate Android native ABI or device lifecycle"
+}

@@ -1,0 +1,11 @@
+{
+  "node": "24.19.0",
+  "npm": "11.17.0",
+  "desktop_python": "3.13.5",
+  "android_python": "3.8.20-1",
+  "compatibility_test_python": "3.8.10",
+  "gradle": "8.9",
+  "android_gradle_plugin": "8.2.2",
+  "chaquopy": "16.1.0",
+  "note": "Recorded tested desktop runtime and existing Android build configuration; no active environment upgrade or packaging performed"
+}

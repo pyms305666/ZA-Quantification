@@ -313,133 +313,171 @@
       "source_path": "E:\\codx project\\期货评估器\\config.py",
       "sha256": "2f9854806d76f10637f024e8dcd8ea88332e51287018f33b5f4fd9a0c0320102",
       "frozen": true,
-      "size": 7171
+      "size": 7171,
+      "git_blob": "35b2bd8b2328339b37bd0b6653968fc8d9b721b6",
+      "git_sha256": "8f6b1a5a24d921d04f29b503970d2a9e746d3810e56591a50a0215e256f8a814"
     },
     {
       "path": "market/__init__.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\__init__.py",
       "sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
       "frozen": true,
-      "size": 85
+      "size": 85,
+      "git_blob": "d6939df83f52c5d8e3c0a736880e28a21a6cfb63",
+      "git_sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b"
     },
     {
       "path": "market/cache.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\cache.py",
       "sha256": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
       "frozen": true,
-      "size": 1294
+      "size": 1294,
+      "git_blob": "e356377374754347b81067a2933e6212018e0e5d",
+      "git_sha256": "dc27cacf6abfec7a64e2ca2083334371f3545456a5f443e6f5a42cd195a2497c"
     },
     {
       "path": "market/decision_profiles.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\decision_profiles.py",
       "sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
       "frozen": true,
-      "size": 10314
+      "size": 10314,
+      "git_blob": "3bb1ad71f5af041ba0340e097ef94f3d5768bcd3",
+      "git_sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33"
     },
     {
       "path": "market/evaluator.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\evaluator.py",
       "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
       "frozen": true,
-      "size": 21093
+      "size": 21093,
+      "git_blob": "be4994b2dd305a62ace04ad10bc6303abadeb389",
+      "git_sha256": "d7123fa9f0ee97e7928ccbc6677505fcf4ba0344a60151b128f3bca56d56847b"
     },
     {
       "path": "market/indicators.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\indicators.py",
       "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
       "frozen": true,
-      "size": 6175
+      "size": 6175,
+      "git_blob": "f97dfc24ddfecc1788d68bd71d07cc756c2be9b1",
+      "git_sha256": "c52ab1f25ab19c4165878a88cb0455ce0e78cddb39eb87780e6cca418789f5c2"
     },
     {
       "path": "market/model.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\model.py",
       "sha256": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
       "frozen": true,
-      "size": 3942
+      "size": 3942,
+      "git_blob": "0ba1de58c5724b710922ff005b6cb69b2264a1eb",
+      "git_sha256": "076cbdada445658e1565c9860af87bf94bd227fb37f388caff8d29e2e723cf68"
     },
     {
       "path": "market/processor.py",
       "source_path": "E:\\codx project\\期货评估器\\market\\processor.py",
       "sha256": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
       "frozen": true,
-      "size": 4290
+      "size": 4290,
+      "git_blob": "036b95b1727c34bfdc7c2176c10d438cb1edef45",
+      "git_sha256": "4bd6a3b18e8aea863dd5185102424f55d38215e171daede4cacb1a099fe9a917"
     },
     {
       "path": "mobile-app/app/src/main/python/config.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\config.py",
       "sha256": "83c2df3bde3c0488358ad920f322d280308bb38d1f4a13b76240e5b8a42a877a",
       "frozen": true,
-      "size": 6056
+      "size": 6056,
+      "git_blob": "ab4dd118a0c1a414908c689684908a5bbcd87395",
+      "git_sha256": "2b9a2a51aadb9228647763c5d3fd2df45107f50aff2962ea01bfe00d4357b91b"
     },
     {
       "path": "mobile-app/app/src/main/python/evaluator.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\evaluator.py",
       "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
       "frozen": true,
-      "size": 21093
+      "size": 21093,
+      "git_blob": "be4994b2dd305a62ace04ad10bc6303abadeb389",
+      "git_sha256": "d7123fa9f0ee97e7928ccbc6677505fcf4ba0344a60151b128f3bca56d56847b"
     },
     {
       "path": "mobile-app/app/src/main/python/indicators.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\indicators.py",
       "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
       "frozen": true,
-      "size": 6175
+      "size": 6175,
+      "git_blob": "f97dfc24ddfecc1788d68bd71d07cc756c2be9b1",
+      "git_sha256": "c52ab1f25ab19c4165878a88cb0455ce0e78cddb39eb87780e6cca418789f5c2"
     },
     {
       "path": "mobile-app/app/src/main/python/market/__init__.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\__init__.py",
       "sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
       "frozen": true,
-      "size": 85
+      "size": 85,
+      "git_blob": "d6939df83f52c5d8e3c0a736880e28a21a6cfb63",
+      "git_sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b"
     },
     {
       "path": "mobile-app/app/src/main/python/market/cache.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\cache.py",
       "sha256": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
       "frozen": true,
-      "size": 1294
+      "size": 1294,
+      "git_blob": "e356377374754347b81067a2933e6212018e0e5d",
+      "git_sha256": "dc27cacf6abfec7a64e2ca2083334371f3545456a5f443e6f5a42cd195a2497c"
     },
     {
       "path": "mobile-app/app/src/main/python/market/decision_profiles.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\decision_profiles.py",
       "sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
       "frozen": true,
-      "size": 10314
+      "size": 10314,
+      "git_blob": "3bb1ad71f5af041ba0340e097ef94f3d5768bcd3",
+      "git_sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33"
     },
     {
       "path": "mobile-app/app/src/main/python/market/evaluator.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\evaluator.py",
       "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
       "frozen": true,
-      "size": 21093
+      "size": 21093,
+      "git_blob": "be4994b2dd305a62ace04ad10bc6303abadeb389",
+      "git_sha256": "d7123fa9f0ee97e7928ccbc6677505fcf4ba0344a60151b128f3bca56d56847b"
     },
     {
       "path": "mobile-app/app/src/main/python/market/indicators.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\indicators.py",
       "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
       "frozen": true,
-      "size": 6175
+      "size": 6175,
+      "git_blob": "f97dfc24ddfecc1788d68bd71d07cc756c2be9b1",
+      "git_sha256": "c52ab1f25ab19c4165878a88cb0455ce0e78cddb39eb87780e6cca418789f5c2"
     },
     {
       "path": "mobile-app/app/src/main/python/market/model.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\model.py",
       "sha256": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
       "frozen": true,
-      "size": 3942
+      "size": 3942,
+      "git_blob": "0ba1de58c5724b710922ff005b6cb69b2264a1eb",
+      "git_sha256": "076cbdada445658e1565c9860af87bf94bd227fb37f388caff8d29e2e723cf68"
     },
     {
       "path": "mobile-app/app/src/main/python/market/processor.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\processor.py",
       "sha256": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
       "frozen": true,
-      "size": 4290
+      "size": 4290,
+      "git_blob": "036b95b1727c34bfdc7c2176c10d438cb1edef45",
+      "git_sha256": "4bd6a3b18e8aea863dd5185102424f55d38215e171daede4cacb1a099fe9a917"
     },
     {
       "path": "mobile-app/app/src/main/python/model.py",
       "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\model.py",
       "sha256": "0adf09c0fc26ea473f5ec8da57180ed3ae2b525852eb238bb7d382949267ea5a",
       "frozen": true,
-      "size": 3494
+      "size": 3494,
+      "git_blob": "22bb2d18043ff27cddeb3226493739600aa4140a",
+      "git_sha256": "3ad2fe529bf6a845b8394bdbcf8b3058be7117ed543d42733299f394c0c16b12"
     },
     {
       "path": "requirements-kronos-research.txt",
@@ -474,7 +512,9 @@
       "source_path": "E:\\codx project\\期货评估器\\research\\conditional_intraday.py",
       "sha256": "07b8ddbe01aedfea0dfc226cc07f68f0eb3e8c1f87622446950458a1515b1d87",
       "frozen": true,
-      "size": 4324
+      "size": 4324,
+      "git_blob": "ff82128eaea8bf4ecb94e698017b0abf02464f99",
+      "git_sha256": "07b8ddbe01aedfea0dfc226cc07f68f0eb3e8c1f87622446950458a1515b1d87"
     },
     {
       "path": "research/data_quality.py",
@@ -488,28 +528,36 @@
       "source_path": "E:\\codx project\\期货评估器\\research\\direction_model.py",
       "sha256": "870383525d981fea74ff92880f9afd46683ffe08a23ac68754f63ee1b5ce032e",
       "frozen": true,
-      "size": 3925
+      "size": 3925,
+      "git_blob": "96944ee6c6691b4ea082f2dfa1cc5d47004ac609",
+      "git_sha256": "870383525d981fea74ff92880f9afd46683ffe08a23ac68754f63ee1b5ce032e"
     },
     {
       "path": "research/forward_runtime.py",
       "source_path": "E:\\codx project\\期货评估器\\research\\forward_runtime.py",
       "sha256": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be",
       "frozen": true,
-      "size": 10333
+      "size": 10333,
+      "git_blob": "157930481cd2369045ccfd9fedf477034bcde150",
+      "git_sha256": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be"
     },
     {
       "path": "research/intraday_profit.py",
       "source_path": "E:\\codx project\\期货评估器\\research\\intraday_profit.py",
       "sha256": "5e99d10c7a897e5aa817402d7cc0f7e722fdead1253c9bb09662b32b9d5f33f9",
       "frozen": true,
-      "size": 6816
+      "size": 6816,
+      "git_blob": "7e1370d56f951ca5566424f57c11531abebde78f",
+      "git_sha256": "5e99d10c7a897e5aa817402d7cc0f7e722fdead1253c9bb09662b32b9d5f33f9"
     },
     {
       "path": "research/minute_intraday.py",
       "source_path": "E:\\codx project\\期货评估器\\research\\minute_intraday.py",
       "sha256": "b6a443d65f9e86e7ed7494352eba7e52eb380460b5398a105c02ae6ea170a0ec",
       "frozen": true,
-      "size": 4073
+      "size": 4073,
+      "git_blob": "6c1e25336278bcc3e9d01cc77dbab9da43e387f1",
+      "git_sha256": "b6a443d65f9e86e7ed7494352eba7e52eb380460b5398a105c02ae6ea170a0ec"
     },
     {
       "path": "tests/test_backtest.py",
@@ -593,14 +641,18 @@
       "source_path": "E:\\codx project\\期货评估器\\tools\\forward_decision_accuracy.py",
       "sha256": "2f1d224c51f0fddfaf3249f38f7e6504049dcc181b11306959034a7d135ad977",
       "frozen": true,
-      "size": 12239
+      "size": 12239,
+      "git_blob": "1f57e10c4a6263b13a84223d4e41b4ee2b828d5c",
+      "git_sha256": "2f1d224c51f0fddfaf3249f38f7e6504049dcc181b11306959034a7d135ad977"
     },
     {
       "path": "tools/forward_research.py",
       "source_path": "E:\\codx project\\期货评估器\\tools\\forward_research.py",
       "sha256": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff",
       "frozen": true,
-      "size": 17718
+      "size": 17718,
+      "git_blob": "da7b9af79315443f0355699f92c3efb67bd35c3f",
+      "git_sha256": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff"
     },
     {
       "path": "tools/freeze_decision_qualification.py",
@@ -789,7 +841,9 @@
       "source_path": "E:\\codx project\\期货评估器\\tools\\research_gated_15m.py",
       "sha256": "25e88d5e78e05ee60b9771d4eff44aafb84c09b0cfc1f21a950263cf6d7ab2b7",
       "frozen": true,
-      "size": 15670
+      "size": 15670,
+      "git_blob": "715260525292fa0142b7411555caf504046e4ada",
+      "git_sha256": "25e88d5e78e05ee60b9771d4eff44aafb84c09b0cfc1f21a950263cf6d7ab2b7"
     },
     {
       "path": "tools/research_history.py",
@@ -817,7 +871,9 @@
       "source_path": "E:\\codx project\\期货评估器\\tools\\research_rolling_15m.py",
       "sha256": "60753f57f428dba412b1e64d0c2255e24effe5f48e4888994412ac277ce0647a",
       "frozen": true,
-      "size": 12368
+      "size": 12368,
+      "git_blob": "5e14b72ced335431e0a4486dc779fc3a72825fda",
+      "git_sha256": "60753f57f428dba412b1e64d0c2255e24effe5f48e4888994412ac277ce0647a"
     },
     {
       "path": "tools/research_signal_controls.py",
@@ -952,5 +1008,6 @@
       "frozen": false,
       "size": 4625
     }
-  ]
+  ],
+  "git_baseline_commit": "34c2b67fc590670b692337d8b063a7cea1f22c44"
 }

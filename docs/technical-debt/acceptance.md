@@ -57,3 +57,15 @@ Electron 与启动器按 TQ_GATEWAY_CONFIG 或工作目录 config.json 读取服
 共享 app_runtime 统一资源 VERSION 和日志入口，API 元数据同步版本；日志在应用用户目录（Android 私有目录），UTF-8、按实际字节计 5 MiB、3 备份，过滤凭据与完整盘口。launcher/main/mobile 使用相同日志初始化，Electron 接管浏览器窗口时启动器不再另开浏览器。冻结 config.py 与风险值未改。
 
 验收：171 个 Python 测试通过；Electron startup/backend Fake 测试与 JS 语法检查通过，覆盖 IPv6、配置覆盖、JSON 阻塞超时、异步 ENOENT、共享期限、迟到 spawn、服务所有权、HTML 转义、UTF-8 轮转和过滤。漂移、现场守卫和差异检查通过。没有启动本机后端或 Electron 实际应用。
+
+## 第 7 步：漂移、锁与发布门禁
+
+动态检查发现 32 个共享目录/资源文件，7 个必要分叉登记具体原因和双方摘要；新增、单端缺失、双方删除既有模块或登记过期均失败。没有覆盖 Android 接口 stub、删除旧模型或改写冻结文件。原快照索引只追加 Git 对象元数据以支持克隆/CI 检查，原始哈希、来源状态、ZIP、实验清单保持不变。
+
+桌面、Android、测试、研究、Kronos 与桌面构建工具分别锁精确传递依赖和来源/验证范围；Node 与测试依赖也核对现有安装版本。Android 15 个缓存依赖与历史 APK 内嵌元数据逐项一致，锁定 Python 3.8。未升级任何既有环境、加载模型权重或改变实验。
+
+正式 release 缺完整生产签名配置明确失败，取消 debug 回退；debug 开发路径保留。产物门禁核对 SDK 签名、非 debug 证书、应用 ID、版本/ABI 及外部预期 SHA-256。本轮仅 Fake 签名输出/临时 ZIP 检查，没有执行 Gradle 构建、SDK 签名或安装。加入只读健康检查和无实盘/打包作业的离线 CI。
+
+最终完整入口 `python -B tools/check_offline.py --python38 .local/python38/python.exe` 通过：177 个 Python 测试，5 个 Node 测试入口（含桌面和手机浏览器），真实 CPython 3.8.10 的 87 个共享/Android Fake 测试。Python 3.8 使用官方免安装 ZIP，记录来源/哈希，读取既有 Android 依赖时禁字节码写入；未安装或升级环境。四种持仓模式固定输入输出和取数顺序基线通过。
+
+扩大后的漂移、原始冻结/现场守卫、可移植 Git 守卫、精确依赖及差异检查通过。现场只读健康检查显示两个 PID 存活且心跳新近，未对验证程序发送操作。`release_gate.py` 在本轮没有发布密钥时按预期返回 1，并明确禁止发布。真实设备、实际密钥/产物和远端 CI 仍未验收，完整范围及命令见本目录 README。

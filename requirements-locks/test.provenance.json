@@ -1,0 +1,43 @@
+{
+  "python": "3.13.5",
+  "platform": "win32",
+  "roots": [
+    "fastapi",
+    "uvicorn",
+    "websockets",
+    "requests",
+    "ijson",
+    "keyring",
+    "packaging"
+  ],
+  "packages": {
+    "fastapi": "0.141.1",
+    "uvicorn": "0.52.4",
+    "websockets": "17.0.1",
+    "requests": "2.34.2",
+    "ijson": "3.2.3",
+    "keyring": "25.6.0",
+    "packaging": "26.3",
+    "starlette": "1.6.0",
+    "pydantic": "2.13.4",
+    "typing-extensions": "4.15.0",
+    "typing-inspection": "0.4.4",
+    "annotated-doc": "0.0.5",
+    "click": "8.4.2",
+    "h11": "0.16.0",
+    "charset-normalizer": "3.5.1",
+    "idna": "3.19",
+    "urllib3": "2.7.0",
+    "certifi": "2026.7.22",
+    "pywin32-ctypes": "0.2.3",
+    "jaraco.classes": "3.4.0",
+    "jaraco.functools": "4.6.0",
+    "jaraco.context": "6.1.2",
+    "anyio": "4.14.2",
+    "annotated-types": "0.8.0",
+    "pydantic-core": "2.46.4",
+    "colorama": "0.4.6",
+    "more-itertools": "11.1.0"
+  },
+  "validation_scope": "完整离线 Python/Node/浏览器回归"
+}

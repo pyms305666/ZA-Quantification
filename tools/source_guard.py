@@ -110,8 +110,40 @@ def capture(base):
           (len(raw), experiment_count, index["archive_sha256"]))
 
 
-def check(require_main=False):
+def check_git(index):
+    errors = []
+    baseline = index.get("git_baseline_commit")
+    if not baseline:
+        return ["Git freeze metadata missing"]
+    for entry in index["files"]:
+        if not entry["frozen"]:
+            continue
+        rel = entry["path"]
+        try:
+            expected = entry["git_blob"]
+            refs = (baseline + ":" + rel, "HEAD:" + rel, ":" + rel)
+            if any(git(ROOT, "rev-parse", ref).decode().strip() != expected for ref in refs):
+                errors.append("Frozen Git object changed: " + rel)
+            blob = git(ROOT, "show", baseline + ":" + rel)
+            if digest(blob) != entry["git_sha256"]:
+                errors.append("Frozen Git digest changed: " + rel)
+            work = git(ROOT, "hash-object", "--path=" + rel, str(ROOT / rel)).decode().strip()
+            if work != expected:
+                errors.append("Frozen working source changed: " + rel)
+        except (KeyError, OSError, subprocess.CalledProcessError):
+            errors.append("Frozen Git source unavailable: " + rel)
+    return errors
+
+
+def check(require_main=False, git_only=False):
     index = json.loads(INDEX.read_text(encoding="utf-8"))
+    if git_only:
+        errors = check_git(index)
+        for error in errors:
+            print(error)
+        if not errors:
+            print("PASS: frozen Git baseline/index/HEAD/working sources unchanged")
+        return 1 if errors else 0
     errors = []
     for entry in index["files"]:
         if entry["frozen"]:
@@ -142,10 +174,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", type=Path)
     parser.add_argument("--require-main", action="store_true")
+    parser.add_argument("--git-only", action="store_true", help="Portable clone check; local raw/main guard remains separate")
     args = parser.parse_args()
+    if args.git_only and (args.require_main or args.capture):
+        parser.error("--git-only cannot bypass --require-main or capture")
     if args.capture:
         capture(args.capture)
-    return check(args.require_main)
+    return check(args.require_main, args.git_only)
 
 
 if __name__ == "__main__":

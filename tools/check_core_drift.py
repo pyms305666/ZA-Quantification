@@ -1,110 +1,65 @@
-"""桌面端与手机端核心代码漂移检查（对应 docs/项目检查报告-2026-09-11.md P2"两端分叉"）。
-
-背景：手机端 Python 源码是根目录的一份拷贝（mobile-app/app/src/main/python/），
-修 bug 容易只改一边。本工具在每次发布前运行，列出两端核心文件的一致性；
-"预期内"的分叉必须在 EXPECTED_DRIFT 里留档原因，未留档的分叉即"意外漂移"。
-
-用法：
-  python tools/check_core_drift.py             # 报告模式：打印漂移表，恒定 exit 0
-  python tools/check_core_drift.py --strict    # 严格模式：存在预期外漂移时 exit 1（可接 CI）
-"""
-
-from __future__ import annotations
-
+"""自动发现共享目录新增/缺失文件；必要分叉必须登记双方规范换行摘要。"""
 import argparse
 import hashlib
-import sys
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MOBILE = ROOT / "mobile-app" / "app" / "src" / "main" / "python"
-
-# 两端应保持一致的共享核心（相对路径；缺失一侧也会被报告）
-SHARED = [
-    "app_runtime.py",
-    "VERSION",
-    "ws_transport.py",
-    "services.py",
-    "market/__init__.py",
-    "market/cache.py",
-    "market/evaluator.py",
-    "market/decision_profiles.py",
-    "static/decision-controls.js",
-    "static/decision-controls.css",
-    "static/market-connection.js",
-    "market/indicators.py",
-    "market/model.py",
-    "market/processor.py",
-    "tq/__init__.py",
-    "tq/client.py",
-    "tq/instruments.py",
-    "tq/subscriber.py",
-    "tqdiff/client.py",
-]
-
-# 预期内的分叉（必须留档原因）；这些文件出现 DIFF 不算"意外漂移"
-EXPECTED_DRIFT = {
-    "config.py": "手机端多出 App 私有目录解析(za.filesdir/TQ_MOBILE_FILES_DIR)与 clear_credentials；桌面端为 config.json+.tqsdk 相对路径",
-}
+MOBILE = ROOT / "mobile-app/app/src/main/python"
+REGISTRY = ROOT / "docs/technical-debt/expected-drift.json"
+INVENTORY = ROOT / "docs/technical-debt/shared-files.json"
+DIRECTORIES = ("market", "tq", "tqdiff", "api", "static")
+TOP_LEVEL = {"services.py", "config.py", "app_runtime.py", "ws_transport.py", "VERSION"}
 
 
-def sha256_of(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def discover(root, mobile):
+    rels = set(TOP_LEVEL)
+    for base in (root, mobile):
+        for directory in DIRECTORIES:
+            for path in (base / directory).rglob("*"):
+                if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
+                    rels.add(path.relative_to(base).as_posix())
+    return rels
 
 
-def main() -> int:
+def sha256_of(path):
+    if not path.is_file():
+        return None
+    data = path.read_bytes()
+    if path.suffix in {".py", ".js", ".css", ".html", ".txt"} or path.name == "VERSION":
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
+
+
+def check(root=ROOT, mobile=MOBILE, registry=None, required=None):
+    if registry is None:
+        registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    if required is None:
+        required = json.loads(INVENTORY.read_text(encoding="utf-8"))
+    rels = discover(root, mobile) | set(required)
+    errors = []
+    for rel in sorted(rels | set(registry)):
+        a, b = sha256_of(root / rel), sha256_of(mobile / rel)
+        entry = registry.get(rel)
+        if entry:
+            if not entry.get("reason") or rel not in rels or a == b or a != entry.get("desktop_sha256") or b != entry.get("android_sha256"):
+                errors.append("分叉登记过期或摘要不符：" + rel)
+            else:
+                print("FORK " + rel + "：" + entry["reason"])
+        elif a != b or a is None:
+            errors.append("未登记的漂移/缺失：" + rel)
+    for error in errors:
+        print(error)
+    print("Checked %d discovered files, %d registered forks, %d errors" % (len(rels), len(registry), len(errors)))
+    return errors
+
+
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--strict", action="store_true",
-                        help="存在预期外漂移时以退出码 1 结束（可接 CI）")
+    parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
-
-    # 检查清单 = 显式共享清单 + 两侧 tqdiff/*.py 的并集（捕捉"一侧新增模块"）
-    rels = list(SHARED)
-    for base in (ROOT, MOBILE):
-        for p in sorted((base / "tqdiff").glob("*.py")):
-            rel = f"tqdiff/{p.name}"
-            if rel not in rels:
-                rels.append(rel)
-
-    unexpected = 0
-    width = max(len(r) for r in rels)
-    print(f"{'文件':<{width}}  状态        说明")
-    print("-" * (width + 46))
-    for rel in rels:
-        a, b = ROOT / rel, MOBILE / rel
-        if not a.exists() and not b.exists():
-            continue
-        if a.exists() and not b.exists():
-            reason = EXPECTED_DRIFT.get(rel, "未留档")
-            tag = "仅桌面端" if rel in EXPECTED_DRIFT else "仅桌面端!"
-            if rel not in EXPECTED_DRIFT:
-                unexpected += 1
-            print(f"{rel:<{width}}  {tag:<10}  {reason}")
-            continue
-        if b.exists() and not a.exists():
-            reason = EXPECTED_DRIFT.get(rel, "未留档")
-            tag = "仅手机端!" if rel not in EXPECTED_DRIFT else "仅手机端"
-            if rel not in EXPECTED_DRIFT:
-                unexpected += 1
-            print(f"{rel:<{width}}  {tag:<10}  {reason}")
-            continue
-        same = sha256_of(a) == sha256_of(b)
-        if same:
-            print(f"{rel:<{width}}  一致")
-        else:
-            reason = EXPECTED_DRIFT.get(rel)
-            if reason is None:
-                unexpected += 1
-                reason = "未留档（需要同步或留档）"
-            print(f"{rel:<{width}}  分叉        {reason}")
-
-    print("-" * (width + 46))
-    if unexpected:
-        print(f"预期外漂移：{unexpected} 项 —— 请同步两端代码，或在 EXPECTED_DRIFT 留档原因")
-    else:
-        print("无预期外漂移")
-    return 1 if (args.strict and unexpected) else 0
+    return 1 if check() and args.strict else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

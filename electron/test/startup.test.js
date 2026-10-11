@@ -16,7 +16,11 @@ const b=require("../backend");
     for(let n=0;n<12;n++)b.appendRotating(file,b.redact(`中文 fake pass ${n}`,settings.secrets),60,3);
     assert.equal(fs.readdirSync(directory).filter(x=>x.startsWith("log.txt")).length,4);
     for(const name of fs.readdirSync(directory).filter(x=>x.startsWith("log.txt")))assert.ok(!fs.readFileSync(path.join(directory,name),"utf8").includes("fake pass"));
-  }finally{fs.rmSync(directory,{recursive:true,force:true});}
+  }finally{
+    assert.equal(path.dirname(path.resolve(directory)),path.resolve(os.tmpdir()));
+    assert.ok(path.basename(directory).startsWith("za-startup-"));
+    fs.rmSync(directory,{recursive:true,force:true});
+  }
   let aborted=false;
   const stalled=await b.probeStatus("http://fixture.invalid",10,async(url,{signal})=>{
     signal.addEventListener("abort",()=>aborted=true);return {ok:true,json:()=>new Promise(()=>{})};
