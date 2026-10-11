@@ -1,0 +1,956 @@
+{
+  "source_root": "E:\\codx project\\期货评估器",
+  "base_commit": "a4ece80504c7763a9a1a391d0f983ab9d1d3e0e2",
+  "experiment_frozen_count": 14,
+  "experiment_manifests": [
+    {
+      "source_path": "E:\\codx project\\期货评估器\\.tqsdk\\research\\forward15m\\manifest.json",
+      "source_sha256": {
+        "research/forward_runtime.py": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be",
+        "research/intraday_profit.py": "5e99d10c7a897e5aa817402d7cc0f7e722fdead1253c9bb09662b32b9d5f33f9",
+        "research/conditional_intraday.py": "07b8ddbe01aedfea0dfc226cc07f68f0eb3e8c1f87622446950458a1515b1d87",
+        "research/minute_intraday.py": "b6a443d65f9e86e7ed7494352eba7e52eb380460b5398a105c02ae6ea170a0ec",
+        "research/direction_model.py": "870383525d981fea74ff92880f9afd46683ffe08a23ac68754f63ee1b5ce032e",
+        "tools/research_rolling_15m.py": "60753f57f428dba412b1e64d0c2255e24effe5f48e4888994412ac277ce0647a",
+        "tools/research_gated_15m.py": "25e88d5e78e05ee60b9771d4eff44aafb84c09b0cfc1f21a950263cf6d7ab2b7",
+        "tools/forward_research.py": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff",
+        "market/decision_profiles.py": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33"
+      }
+    },
+    {
+      "source_path": "E:\\codx project\\期货评估器\\.tqsdk\\research\\decision_forward\\manifest.json",
+      "source_sha256": {
+        "tools/forward_decision_accuracy.py": "2f1d224c51f0fddfaf3249f38f7e6504049dcc181b11306959034a7d135ad977",
+        "tools/forward_research.py": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff",
+        "research/forward_runtime.py": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be",
+        "market/evaluator.py": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+        "market/decision_profiles.py": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
+        "market/indicators.py": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+        "market/model.py": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
+        "config.py": "2f9854806d76f10637f024e8dcd8ea88332e51287018f33b5f4fd9a0c0320102"
+      }
+    }
+  ],
+  "archive": ".local/source-snapshot/v1.2.1-original.zip",
+  "archive_sha256": "514683611df8a33f02acc21451ac0099ead12d5dbc120c2ad475be74122900cd",
+  "main_source_state": {
+    "commit": "a4ece80504c7763a9a1a391d0f983ab9d1d3e0e2",
+    "branch": "mobile-app",
+    "untracked_sources": [
+      "requirements-kronos-research.txt",
+      "requirements-research.txt",
+      "research/__init__.py",
+      "research/backtest.py",
+      "research/conditional_intraday.py",
+      "research/data_quality.py",
+      "research/direction_model.py",
+      "research/forward_runtime.py",
+      "research/intraday_profit.py",
+      "research/minute_intraday.py",
+      "tests/test_backtest.py",
+      "tests/test_direction_model.py",
+      "tools/amend_forward_clock.py",
+      "tools/audit_backtest.py",
+      "tools/audit_decision_accuracy.py",
+      "tools/audit_decision_multimarket.py",
+      "tools/audit_gated_tick_fills.py",
+      "tools/audit_tick_fills.py",
+      "tools/backtest_horizons.py",
+      "tools/collect_fine_minutes.py",
+      "tools/diagnose_minute_15m.py",
+      "tools/forward_decision_accuracy.py",
+      "tools/forward_research.py",
+      "tools/freeze_decision_qualification.py",
+      "tools/infer_kronos_15m.py",
+      "tools/prepare_external_15m_data.py",
+      "tools/prepare_kronos_research.py",
+      "tools/prepare_minute_model.py",
+      "tools/probe_decision_live.py",
+      "tools/probe_fine_history.py",
+      "tools/probe_forward_market.py",
+      "tools/replay_backtest_data.py",
+      "tools/report_15m_profit_review.py",
+      "tools/report_decision_accuracy.py",
+      "tools/report_decision_factors.py",
+      "tools/report_decision_multimarket.py",
+      "tools/report_decision_qualification.py",
+      "tools/report_direction_models.py",
+      "tools/report_forward_research.py",
+      "tools/report_gated_15m.py",
+      "tools/report_minute_15m.py",
+      "tools/report_open_session.py",
+      "tools/report_rolling_15m.py",
+      "tools/report_signal_controls.py",
+      "tools/research_15m_cost_features.py",
+      "tools/research_15m_profit.py",
+      "tools/research_conditional_15m.py",
+      "tools/research_decision_factors.py",
+      "tools/research_fill_prefix.py",
+      "tools/research_gated_15m.py",
+      "tools/research_history.py",
+      "tools/research_minute_15m.py",
+      "tools/research_process_helpers.ps1",
+      "tools/research_rolling_15m.py",
+      "tools/research_signal_controls.py",
+      "tools/research_supervisor_launcher.pyw",
+      "tools/research_universe.py",
+      "tools/research_warmup.py",
+      "tools/start_decision_accuracy.ps1",
+      "tools/start_decision_supervisor.ps1",
+      "tools/start_forward_research.ps1",
+      "tools/stop_decision_supervisor.ps1",
+      "tools/supervise_decision_research.ps1",
+      "tools/train_direction_models.py",
+      "tools/train_full_event_filter_15m.py",
+      "tools/validate_external_15m.py",
+      "tools/verify_conditional_15m.py",
+      "tools/verify_decision_forward.py",
+      "tools/verify_decision_observer.py",
+      "tools/verify_external_15m.py",
+      "tools/verify_forward_research.py",
+      "tools/verify_gated_ticks.py",
+      "tools/verify_minute_15m.py"
+    ],
+    "sha256": {
+      "README.md": "66aa3ac48f68c8fd1b98b1bc599e3b179f4505cbc7b18117d309cf9223fd821e",
+      "VERSION": "6cf4e084b47f33c9b02ef79279d157833868f8f70514169a768be353ee328fea",
+      "api/__init__.py": "ba7d39853795dd4ee905c7f9e124a1332703698ddcc04f78b7507887a100f1f0",
+      "api/http.py": "ff3b3865aa64037f1813190a01183543b48bb8b09b90009ad2035162ea72e92c",
+      "api/websocket.py": "fb424c0b39e3b8dcbdd7e313de6ff9edd13dba5c4588a7b2b6b222c41df14ce5",
+      "config.py": "2f9854806d76f10637f024e8dcd8ea88332e51287018f33b5f4fd9a0c0320102",
+      "design/手机版/UI设计稿-登录与我的.html": "8569505abda9f549ca4a0bde5a6225c8e7cbeb0aed78c2aeeb265d70d25eac91",
+      "design/手机版/UI设计稿.html": "45304c38df1f1414627f3179a4bf26191f6e8b03e90e041bf302847cb34ba710",
+      "docs/验证记录/2026-09-15/phone_logcat.txt": "5cf8e6a12190f5d0ba8878191b7080a62ad41c66c92d5914b8cfeb5677dc2af4",
+      "docs/验证记录/2026-09-16/phone_final_recovery.xml": "093afb164776baa4f38c680f86fde6991b537ecc00b8b64c6774124d5f1b835d",
+      "docs/验证记录/2026-09-19/logcat_catalog_excerpt.txt": "c4937c108ba6ef576e6a833d4d4c33e0c5d28f8b53b955c269e824365cefee6f",
+      "docs/验证记录/2026-09-19/phone_logcat_full.txt": "54f3f30ad41a7ffd66b5368ded8da8b47705a3f096cde3e44a8735ef817668b4",
+      "docs/验证记录/2026-09-19/probe_206.txt": "4c81c867e553e08c5f4f8e10fe4f3d565ebe9a77cdf22b98e2086cb9e77d526d",
+      "docs/验证记录/2026-09-19/resume_contract_curl.txt": "78e12feebd90810a06f18849c3b432cf154a00d16e784eed5c1233edb6756bcc",
+      "docs/验证记录/2026-09-19/桌面自愈验证.txt": "919f37a5b9b4ba83578d88358f16956fcfd8e995ebf536de1f4587b22da6d6d9",
+      "electron/backend.js": "6699a305dfd3accf952f86cf7d5ffb6169ec28fd94742d8449f05e652829d1d6",
+      "electron/main.js": "78de6825825446b7286683f2f0a4f8b068913c000756fe18531ee4a6b0499768",
+      "electron/package-lock.json": "840eeab43d858ce5316102c8dcae51e8a040d039257a91cc7be7d5673bfb9490",
+      "electron/package.json": "86bab3b7477492ebcdaa209d93e206c361d3181ce604667f5d256f1b74c19fec",
+      "electron/test/backend.test.js": "ff82c55dcfe358cf254de43ce27157787137511df60acde982e6d1c53c0eb7fe",
+      "electron/test/decision-ui.test.js": "37b40a5c3dc4e1895b22321c1b1555727cf9a36323b37a0bc51fa01d553c5030",
+      "electron/test/gui.test.js": "d9e934fe0413f43db259dc0e05e8f251ab661e9903bf7b6f3f953908b23607ae",
+      "installer/使用说明-AB.txt": "34b383f15cae778c72d4446c93cbf92d8657edcc44964520befd2607182812d2",
+      "installer/使用说明-C.txt": "a5295757041fad9cf33b0754ded28b560a759f290b8007a7fbc32e59da3826fb",
+      "launcher.py": "c0097e4714416f896d5bc3b6cb5c938030e8840414216c4121fff9f25a69f79c",
+      "main.py": "e56ea59fbcc0b4301279910e4fad2c3bc9fb5956cc45ac4487bb9cda76ac4ce4",
+      "market/__init__.py": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
+      "market/cache.py": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
+      "market/decision_profiles.py": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
+      "market/evaluator.py": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "market/indicators.py": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "market/model.py": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
+      "market/processor.py": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
+      "mobile-app/app/build.gradle": "0f3fcbd60e37840b3af19582b9b21b8df7a9e534f9410cf491d2b2a3a670dde8",
+      "mobile-app/app/src/main/AndroidManifest.xml": "27b410dc6ab34ab5d7f937d293da1531667625add1bfab20c1df5076dd026b69",
+      "mobile-app/app/src/main/java/com/zaquant/mobile/BackendService.java": "a64a38ebd4f7a0b618501d89de911085b6c2611f2991d6201ba43f4f65d5b63b",
+      "mobile-app/app/src/main/java/com/zaquant/mobile/MainActivity.java": "1bab6edbad7e23ba4c3459716a8425809fa26ed1c7f43007f8bf57423fcf6bf0",
+      "mobile-app/app/src/main/python/api/__init__.py": "ba7d39853795dd4ee905c7f9e124a1332703698ddcc04f78b7507887a100f1f0",
+      "mobile-app/app/src/main/python/api/websocket.py": "cece05432b757874c187742d2c2f588a4ee57ac07df95871a8639090371da1fc",
+      "mobile-app/app/src/main/python/backend_main.py": "2dc52fb24e1ca70803044be6371a3397d074af5c90b4e946681cd05be90d02df",
+      "mobile-app/app/src/main/python/cache.py": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
+      "mobile-app/app/src/main/python/config.py": "83c2df3bde3c0488358ad920f322d280308bb38d1f4a13b76240e5b8a42a877a",
+      "mobile-app/app/src/main/python/evaluator.py": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "mobile-app/app/src/main/python/indicators.py": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "mobile-app/app/src/main/python/instruments.py": "f0d0050457cc49ee718b09c363331785d849543cafc90c1500604c374e6fc965",
+      "mobile-app/app/src/main/python/market/__init__.py": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
+      "mobile-app/app/src/main/python/market/cache.py": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
+      "mobile-app/app/src/main/python/market/decision_profiles.py": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
+      "mobile-app/app/src/main/python/market/evaluator.py": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "mobile-app/app/src/main/python/market/indicators.py": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "mobile-app/app/src/main/python/market/model.py": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
+      "mobile-app/app/src/main/python/market/processor.py": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
+      "mobile-app/app/src/main/python/mobile_api.py": "c156234b058d0fc7b1adb55d01f0a446ba1953dc068a45b334eab1c4f52bdafe",
+      "mobile-app/app/src/main/python/model.py": "0adf09c0fc26ea473f5ec8da57180ed3ae2b525852eb238bb7d382949267ea5a",
+      "mobile-app/app/src/main/python/processor.py": "24200b6bd352842ff0b90dae8945b7c29bd1c63530ada8187ad9548ce5cdfd66",
+      "mobile-app/app/src/main/python/services.py": "ad6dec443524cc7736b47defb400be9b6766d59cc78b397e36c342499a2e43fd",
+      "mobile-app/app/src/main/python/static/app.js": "3c78bf0cf78787f140b4e71fddab7335529be9c44e7b30e94458062fcaf2b779",
+      "mobile-app/app/src/main/python/static/decision-controls.css": "79ccb0e3e01c3a380cace629e5f3ca90bab16a6eb48ec3dd4712e65a9dbfb412",
+      "mobile-app/app/src/main/python/static/decision-controls.js": "9363227632916603659f0951a6274a768dcf9d8d89ca807e6c04a4404f8ba7b3",
+      "mobile-app/app/src/main/python/static/index.html": "0a4f78c7c02532bf9921d0ed855e552997fd523af72f7f9e0152b82f44ae6378",
+      "mobile-app/app/src/main/python/static/style.css": "0e89a64754fe70b4f74b5ba1029e68831610856bd8073b5e61e69c78657d3c50",
+      "mobile-app/app/src/main/python/static/vendor/echarts.min.js": "e84270bd0cd5bdf60fefc26d00c2a391cb2e81f4d26a7a9ee16185a54773a3cf",
+      "mobile-app/app/src/main/python/subscriber.py": "5cd0ceaa63d20edd90510ffa2fd4b194ad3816d62654396a95122d3ce583b8a5",
+      "mobile-app/app/src/main/python/tq/__init__.py": "c8f61ae6647158a0c565a3122656a7eed8beee8d52b56b9d30aa6bd4e9c20fd1",
+      "mobile-app/app/src/main/python/tq/client.py": "ae30d7591f8b142452036e7fccb8c9262b3cff488d0a7c49942569c647e93f54",
+      "mobile-app/app/src/main/python/tq/instruments.py": "8980286673356247c6357741c0877ef89560ea8fc338664775dcc4a37ffd9518",
+      "mobile-app/app/src/main/python/tq/subscriber.py": "5cd0ceaa63d20edd90510ffa2fd4b194ad3816d62654396a95122d3ce583b8a5",
+      "mobile-app/app/src/main/python/tqdiff/__init__.py": "e2b5ddaaa04f950e233f3bbce6163865a2d4099e90a5e87f28d1004f232c4ce6",
+      "mobile-app/app/src/main/python/tqdiff/auth.py": "5b3f74eee5cbea71a78fa72273a046f58a11edd29017150915117e90e777cb9a",
+      "mobile-app/app/src/main/python/tqdiff/builtin_symbols.py": "6fc2495516f7ba62092a2d60de0d81845bb5bd0100df9f631cf3a665533bcafb",
+      "mobile-app/app/src/main/python/tqdiff/client.py": "eb494fc89ec02f65d00db12ae5f6a7cce2712888dfaa48ce1cfa2108c3bd15fc",
+      "mobile-app/app/src/main/python/tqdiff/symbol_index.py": "0c1e391f304fe476831eb45305c95dcebea58f73a1e56eb35587dd7af91c4859",
+      "mobile-app/app/src/main/res/drawable/ic_launcher_foreground.xml": "73d213e50f3230490fb131873dacbd46e2f6091436bf11413bed3d7d0fde628a",
+      "mobile-app/app/src/main/res/drawable/ic_launcher_monochrome.xml": "089d29405b9a60bab474603383f1c1884585f5865f8e133d8a4ed20debe10963",
+      "mobile-app/app/src/main/res/drawable/ic_notification.xml": "de82eed23d74d0775a927860bdd303be22c63bc2258753d1d4ac6a697f355e98",
+      "mobile-app/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml": "57095a4e48d4add12a0fa5b1115728b39c6dc4ee6761365337c7edd85de2ef8d",
+      "mobile-app/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml": "57095a4e48d4add12a0fa5b1115728b39c6dc4ee6761365337c7edd85de2ef8d",
+      "mobile-app/app/src/main/res/mipmap-anydpi/ic_launcher.xml": "70fdacce5401eb343b16ad3a18dd67c8a36746174ca24636b665a118abc42d19",
+      "mobile-app/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml": "9fff51e9b5c6457c987f8d501cfaa89a1028df225291f5ddc4c5aa9fa8381d6e",
+      "mobile-app/app/src/main/res/values/colors.xml": "034df4d9ab9343001933f58139ba834f1d9ef581a73fd8ab728c546c23c31259",
+      "mobile-app/app/src/main/res/values/strings.xml": "0443966aa8e8583af0d47e84e409e32b7ff67fcc672c4ed74bc0bae653d66b6c",
+      "mobile-app/app/src/main/res/values/themes.xml": "a537d00cf6d3b1abd81665599070d7350874f3eba745ae8ded172922d41e494e",
+      "mobile-app/build.gradle": "843d1564336df31dca0c3e7257d34880a015920cff742858b9f38b9792abf363",
+      "mobile-app/gradle.properties": "2575dff0584edf67dc2daf26344cb88027a954322495fba11b1a886691a4c2cf",
+      "mobile-app/gradle/wrapper/gradle-wrapper.properties": "3d91f0932da99885c41e9dc4e85c9f9a2d3bfef4f0ad87473014dc0827a94884",
+      "mobile-app/settings.gradle": "285cc0f01f9705b785638cd303ffb248db0590280ddcb54f8628d2493bd69dab",
+      "mobile_api.py": "d65000e457c2ef0f26a8436abfb24289ca440bf01018852a0d598ab74dc2c679",
+      "requirements-kronos-research.txt": "f5b6871a24a9314dace386078e4d5d02b17d06c58536e62972b635a4863e6d61",
+      "requirements-research.txt": "8e7ea84f8751443e60949e23e3cbb47d22c8e259460099c75859c47a4cb72a6b",
+      "requirements.txt": "c511fabf6351faec56bd222b3c7fbd766c135e6d1154ed2fc88684f0e9d0d910",
+      "research/__init__.py": "baf3851bde0f2a39613a35c094d4ccc0de41557346a9054e82e890dff773e669",
+      "research/backtest.py": "ec0932324af477972c83fce6828dfae247c074c4336177fd8b920d0f04637f50",
+      "research/conditional_intraday.py": "07b8ddbe01aedfea0dfc226cc07f68f0eb3e8c1f87622446950458a1515b1d87",
+      "research/data_quality.py": "8f4fc4a7001b89a3017b8b44ca522428801d4346f8497c6677d496783aa9f316",
+      "research/direction_model.py": "870383525d981fea74ff92880f9afd46683ffe08a23ac68754f63ee1b5ce032e",
+      "research/forward_runtime.py": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be",
+      "research/intraday_profit.py": "5e99d10c7a897e5aa817402d7cc0f7e722fdead1253c9bb09662b32b9d5f33f9",
+      "research/minute_intraday.py": "b6a443d65f9e86e7ed7494352eba7e52eb380460b5398a105c02ae6ea170a0ec",
+      "services.py": "ad6dec443524cc7736b47defb400be9b6766d59cc78b397e36c342499a2e43fd",
+      "static/app.js": "340253ef9dda0e36ea3330a69cfe731046865dafb4a8c5d5d82cf3a07fd94270",
+      "static/decision-controls.css": "79ccb0e3e01c3a380cace629e5f3ca90bab16a6eb48ec3dd4712e65a9dbfb412",
+      "static/decision-controls.js": "9363227632916603659f0951a6274a768dcf9d8d89ca807e6c04a4404f8ba7b3",
+      "static/index.html": "a6e802e03723aeef64735f889edd25dd5161833c793b8e79e22a8272b628bfe1",
+      "static/style.css": "eef98681c4af3c514e147b1125f23b9bb13fb1176213cd93976425eec485147f",
+      "static/vendor/echarts.min.js": "e84270bd0cd5bdf60fefc26d00c2a391cb2e81f4d26a7a9ee16185a54773a3cf",
+      "tests/__init__.py": "3f8373e622d21dc32e93d743d017254ebc860edd35c43ff3ac66b45659991bf4",
+      "tests/test_android_manifest.py": "a40112bba15d63d7b001a3430cbaad9f9c74c6738534cd7a05594ea4228ac269",
+      "tests/test_backtest.py": "120746cf0a3fe0ee62918dcf345d15bab8893055075231da329db4203a3394e6",
+      "tests/test_config.py": "fc6b895feaffd378165161cbed8566b4ef1f3841d554fbeee3ec3bc8d23f93b4",
+      "tests/test_decision.py": "801e0f31c84190c6bcb99c7db267d3b931cfc5b1d9252fc2d914d1fe14531801",
+      "tests/test_decision_api.py": "a088147fb048f74036f3a51ddb1703ad8007fedda2a74e5712b1e9e7a3bf7ceb",
+      "tests/test_decision_profiles.py": "012235ac6252bc919da8ed16913ed9914cef6dac3d053e5fac602eaccd715836",
+      "tests/test_direction_model.py": "6ec5accd14d83c14a589b565f0547dc6f22ebf1efe5318ed352d1e7c88ef54bb",
+      "tests/test_http.py": "0c9ccbadbdd46b529444de878a3afe4eedb898f40d0fdf07f426135bbd7d17d5",
+      "tests/test_market.py": "97b89d94ab8fa5e6639544641e6924bdedc5df137a1b5bc3213234e86e15f46f",
+      "tests/test_tq.py": "fb2e9e73d5dd608456b48e509b0a94bae252cc3928d66a6918df4e3157a57c95",
+      "tests/test_tqdiff.py": "68c74a8e37fa46f532ae088ec7b4f784cec5742b6e01862fa4b5a5250e7198bf",
+      "tools/amend_forward_clock.py": "d21b1d5b04d2ad35d55425ee1f8b85e8bd658ae04884943eca4438833b0903d9",
+      "tools/audit_backtest.py": "770a43d00744a661ded609ca4536fb9e83856ca021fb72e98f77420466480897",
+      "tools/audit_decision_accuracy.py": "68c9db110a595d201799330d1cf7c0d7d788099e0338c89d1285784a053e321b",
+      "tools/audit_decision_multimarket.py": "179fa2979cf1ff16f9b9463e642de15b09204afa60d031fb91c3eb17d0abeaa3",
+      "tools/audit_gated_tick_fills.py": "4117eb77774d7c3d721af8ed6161c272a9df2cda6e5da097ab7929e5546c6460",
+      "tools/audit_tick_fills.py": "1af7924a4b42d2bc953eb27269525ed9025e55c08cc62337696cb5e8d14510d2",
+      "tools/backtest_horizons.py": "63b0adf3510672f3016489428697e8d06f95b65d9fc54f548d3083716862a160",
+      "tools/build_builtin_symbols.py": "977cd35c0fe590e87120bbbd5ef7a12e1934a446550fcf58a17da91c7c0fc00d",
+      "tools/catalog_resume_probe.py": "7530dec8b0eb2e8310080d1c4d83c08f73aaa9323e6648760c5fe99d43cd5710",
+      "tools/check_core_drift.py": "f4f40c157905b0da610f80bc9cf31a0c2c4a56dad862f971718f2a2a80a305fe",
+      "tools/collect_fine_minutes.py": "95ae58369e08e45f0eca11faff07478afae8b91d0794586221bae0062434ffcf",
+      "tools/diagnose_minute_15m.py": "be043a8b04fc62f745adb8883cf618c50c77d79fbb5bf9e73cb9d4b2cf98e034",
+      "tools/forward_decision_accuracy.py": "2f1d224c51f0fddfaf3249f38f7e6504049dcc181b11306959034a7d135ad977",
+      "tools/forward_research.py": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff",
+      "tools/freeze_decision_qualification.py": "988c8bc11c8ac4213ff6b924fab7444ae2d56175280e622120b12a68fa76cdc8",
+      "tools/infer_kronos_15m.py": "711e9e121d13083757ff5007dd4b67b23fce2fba361da94d7825a3cd7584ea9a",
+      "tools/latency_probe.py": "a957315acbd8b7e46c07a272bb9e280800068f6ec26417484ef5ff95ceeff0d3",
+      "tools/live_verify.py": "29168e2dcb2a732c6aebf5eb11c5bcf5057fe34f6b0ecc2cdb242718b5a8a2d6",
+      "tools/make_icon.py": "b41166aeea598e88c6af94e00aa0390f3d129935b0a6cc0b5895414bffb5f5c2",
+      "tools/prepare_external_15m_data.py": "5c34680374c89a3060ed022bd2a257e52677c951b6c1b71a3ef0fa7d4cc82b20",
+      "tools/prepare_kronos_research.py": "eac89863b2f4ab076fea708769ea6ca3bea877a4f9eca2e8e3649f8de8ae24e1",
+      "tools/prepare_minute_model.py": "e98de982bba09497a28201748094bac0122c42af36dd4aa9a2817fe8a8a5e9f3",
+      "tools/probe_decision_live.py": "29503253e78d768c37c5c4837045c2bb9292bb21c2cc299e3b8a9585ac046d2f",
+      "tools/probe_fine_history.py": "abd111883356952d3de6240889eb014607875c1003a218b94568ec27c515c10e",
+      "tools/probe_forward_market.py": "63a18e8b10315b7aeaeb501802897522a857d29bdfcc7745d559ee3ca366838a",
+      "tools/replay_backtest_data.py": "b529e1583ee73f619a6e4faabad228d8e66520615969ae4aae656e21edead9c5",
+      "tools/report_15m_profit_review.py": "1d52c9b7a3df9436cfc69830756c3c4c6f4cf6d09d5ba78501fbdabfef51b4c3",
+      "tools/report_decision_accuracy.py": "47a828343174d44f21f5a7db0a332609afde57abc71be765afcceee4e817fc17",
+      "tools/report_decision_factors.py": "11f8fd196c0417c7a67afb05509bc98062ecdc9e073c0b3196aa70af2fa5ce9e",
+      "tools/report_decision_multimarket.py": "95d84ecb3c7592c0b2412e790f50c0a3a0875b2025613d8ba3c71173c6c1e721",
+      "tools/report_decision_qualification.py": "2841652d3ae90c3b2baad8175394ae84780f27605ea0ce5e5191f9d1779714db",
+      "tools/report_direction_models.py": "721e39973e263a723d97cfaffb6d7405692088c32460283231fa27eb63715fa4",
+      "tools/report_forward_research.py": "3b678f743e3045861da7bc5110bc09cfdda89e1daeb7bc4cc3778729ebfd0577",
+      "tools/report_gated_15m.py": "d25f1ba8dd2bb8f3deae99b1bd9f5859838d52134aefecc01e88789de657b72f",
+      "tools/report_minute_15m.py": "cf2af57af283869f251527b3825eab63e2e194ca30b6af360b90b8003952696e",
+      "tools/report_open_session.py": "d4f3107a8b39b67a12d67b5ab95a6506db3642a251b55ec3cd7057f42c1c3d27",
+      "tools/report_rolling_15m.py": "a2a0c52abc08db103bca3a254289bef375b12ce85a0084b0b359abc626c86914",
+      "tools/report_signal_controls.py": "bf9c53b33cea3b50b80ae5a3df323e00b6e04853a70995cd38a6f3f010b1c2ae",
+      "tools/research_15m_cost_features.py": "92c137c7ac6b01e6fe8e37fb72dc694e87ea2a4e6cbd4ff79847a447d4d91bc7",
+      "tools/research_15m_profit.py": "02b5029ed4162ea255cf43426db84ba92d7d15b77c343eed1879d806222a87b3",
+      "tools/research_conditional_15m.py": "1ae091512fc6d5a450626985f0ec71b0500eb3b668d734ef238bfeee51fa709b",
+      "tools/research_decision_factors.py": "9cb7984a3af394f0280dc2138452d356ff4a5738fac0c0aa6e9f4eca746e6510",
+      "tools/research_fill_prefix.py": "9813f00ef0a61588105d7834fc134b8fd5639b25df7a1abb0571d5622fb378ed",
+      "tools/research_gated_15m.py": "25e88d5e78e05ee60b9771d4eff44aafb84c09b0cfc1f21a950263cf6d7ab2b7",
+      "tools/research_history.py": "52a25d4e3d8593f7a0be6e6a70bc2a957171c3afbe2084f593279d7ea423b063",
+      "tools/research_minute_15m.py": "badbf16e1066e22beb527bf50b0be940e723d33cc02e3ee1e7b51e7992667cb7",
+      "tools/research_process_helpers.ps1": "5f3e41e936a4a223828767006f4ed91f11e7ae224c6bc064fbd843c56f7cda3d",
+      "tools/research_rolling_15m.py": "60753f57f428dba412b1e64d0c2255e24effe5f48e4888994412ac277ce0647a",
+      "tools/research_signal_controls.py": "7a713f71621a86059d339953debda4b5524108259c2a110f6f5306a30fc843b7",
+      "tools/research_supervisor_launcher.pyw": "346dbe02f89732cad585474f3577fc850069458c9c3b9d86fcc51fe049e84b11",
+      "tools/research_universe.py": "1f923de908ac66209e54fd92c709051794403e9582effc9dad8c44887ec494af",
+      "tools/research_warmup.py": "e9a7a79a99d7422ef979fc2ff1e3f6733490d2954067045cfe0c118dcb642dd6",
+      "tools/start_decision_accuracy.ps1": "6fcec7dc9b05e206ee4901a8cb8bed3d2db3ca1fad1be57e6584cd66d7c440d0",
+      "tools/start_decision_supervisor.ps1": "8d359000b90b1d0521fca135b1f58f870bc87490f145ab0d205ea853c3804870",
+      "tools/start_forward_research.ps1": "b507ce4dcb1300eaf0d36098c8a9ef8030d7bc0fa0073a4a55a81e488de978c8",
+      "tools/stop_decision_supervisor.ps1": "c4ac639db14d29b70cbb000cd200a3a3431c657589c51faa192f88eb22d2d24a",
+      "tools/supervise_decision_research.ps1": "5868e7a8f0039f0a506679cd5994e5ee7f082d7b97a7e1ed115b46a413155d57",
+      "tools/train_direction_models.py": "7faf269448924b979551a64b712f3282ebedbde61c21ab52f50ff31f5d72a5db",
+      "tools/train_full_event_filter_15m.py": "f147e515abc933f5d119f943a038e140321d9a36ace7b576ac4572aa453a573e",
+      "tools/validate_external_15m.py": "6f50101d0f2ebdb240357398e259b49f8802ce01a0400dd642ba4590fd6c61df",
+      "tools/verify_conditional_15m.py": "f1caddd695bab115edddebd71331d45fb69558e65c6471096e0aa6e34f903ae0",
+      "tools/verify_decision_forward.py": "607e5785981b0f9f222461dbc2222796d8ab257e49ecc3275724649505f33199",
+      "tools/verify_decision_observer.py": "c5426291e1034cdecf8701ce9eeb8238aa70adaad4fece7c225c80130403a651",
+      "tools/verify_external_15m.py": "2b6a78ef5da625cb9cc0e3cd17a7859909ef557a8db7e90e9427f8667e8940af",
+      "tools/verify_forward_research.py": "b3a99c6b3bc07f9ec8d194d7e0602c7aef01d0025c3cc687da0e2039c74b8232",
+      "tools/verify_gated_ticks.py": "a21b7023138056428fdec9e7f60697032cdbb29672ae38b0c20bb4d8e9051ce0",
+      "tools/verify_minute_15m.py": "224d7e293aca361615c9d748a79edeceababbbb0817cfb098b42f261dc1aee03",
+      "tq/__init__.py": "c8f61ae6647158a0c565a3122656a7eed8beee8d52b56b9d30aa6bd4e9c20fd1",
+      "tq/client.py": "ae30d7591f8b142452036e7fccb8c9262b3cff488d0a7c49942569c647e93f54",
+      "tq/instruments.py": "8980286673356247c6357741c0877ef89560ea8fc338664775dcc4a37ffd9518",
+      "tq/subscriber.py": "5cd0ceaa63d20edd90510ffa2fd4b194ad3816d62654396a95122d3ce583b8a5",
+      "tqdiff/__init__.py": "e2b5ddaaa04f950e233f3bbce6163865a2d4099e90a5e87f28d1004f232c4ce6",
+      "tqdiff/auth.py": "5b3f74eee5cbea71a78fa72273a046f58a11edd29017150915117e90e777cb9a",
+      "tqdiff/builtin_symbols.py": "6fc2495516f7ba62092a2d60de0d81845bb5bd0100df9f631cf3a665533bcafb",
+      "tqdiff/client.py": "eb494fc89ec02f65d00db12ae5f6a7cce2712888dfaa48ce1cfa2108c3bd15fc",
+      "tqdiff/symbol_index.py": "0c1e391f304fe476831eb45305c95dcebea58f73a1e56eb35587dd7af91c4859"
+    }
+  },
+  "files": [
+    {
+      "path": "config.py",
+      "source_path": "E:\\codx project\\期货评估器\\config.py",
+      "sha256": "2f9854806d76f10637f024e8dcd8ea88332e51287018f33b5f4fd9a0c0320102",
+      "frozen": true,
+      "size": 7171
+    },
+    {
+      "path": "market/__init__.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\__init__.py",
+      "sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
+      "frozen": true,
+      "size": 85
+    },
+    {
+      "path": "market/cache.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\cache.py",
+      "sha256": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
+      "frozen": true,
+      "size": 1294
+    },
+    {
+      "path": "market/decision_profiles.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\decision_profiles.py",
+      "sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
+      "frozen": true,
+      "size": 10314
+    },
+    {
+      "path": "market/evaluator.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\evaluator.py",
+      "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "frozen": true,
+      "size": 21093
+    },
+    {
+      "path": "market/indicators.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\indicators.py",
+      "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "frozen": true,
+      "size": 6175
+    },
+    {
+      "path": "market/model.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\model.py",
+      "sha256": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
+      "frozen": true,
+      "size": 3942
+    },
+    {
+      "path": "market/processor.py",
+      "source_path": "E:\\codx project\\期货评估器\\market\\processor.py",
+      "sha256": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
+      "frozen": true,
+      "size": 4290
+    },
+    {
+      "path": "mobile-app/app/src/main/python/config.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\config.py",
+      "sha256": "83c2df3bde3c0488358ad920f322d280308bb38d1f4a13b76240e5b8a42a877a",
+      "frozen": true,
+      "size": 6056
+    },
+    {
+      "path": "mobile-app/app/src/main/python/evaluator.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\evaluator.py",
+      "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "frozen": true,
+      "size": 21093
+    },
+    {
+      "path": "mobile-app/app/src/main/python/indicators.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\indicators.py",
+      "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "frozen": true,
+      "size": 6175
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/__init__.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\__init__.py",
+      "sha256": "248d366bb3f6012ae84d331be26a709c3c9c59745099336ab206ddf77f82a15b",
+      "frozen": true,
+      "size": 85
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/cache.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\cache.py",
+      "sha256": "02ba022ad066decda69b82f2a8f47b6a5c27ad430ce57e6ba10bfefb34d09dac",
+      "frozen": true,
+      "size": 1294
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/decision_profiles.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\decision_profiles.py",
+      "sha256": "ae23a73db7b055ef4cd54f78b577d2e6c699072c0a002e8d13fb5f09fcffce33",
+      "frozen": true,
+      "size": 10314
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/evaluator.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\evaluator.py",
+      "sha256": "1872129dbd9be08a1178ec98729d7a570a16463a913ac29655fe24cbb3c7e681",
+      "frozen": true,
+      "size": 21093
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/indicators.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\indicators.py",
+      "sha256": "7c9351c8cdfc7859853068e74984086ebd059c34bd99b8b312a6fefefd2a57fa",
+      "frozen": true,
+      "size": 6175
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/model.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\model.py",
+      "sha256": "24be60b2f719de0d0d79694ec26aa803efc158e037148bdf4f19cebaa4245764",
+      "frozen": true,
+      "size": 3942
+    },
+    {
+      "path": "mobile-app/app/src/main/python/market/processor.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\market\\processor.py",
+      "sha256": "e8396240eb6092ef192c6cadb9d50446f058545462b8aea04d427c3aef78b1c3",
+      "frozen": true,
+      "size": 4290
+    },
+    {
+      "path": "mobile-app/app/src/main/python/model.py",
+      "source_path": "E:\\codx project\\期货评估器\\mobile-app\\app\\src\\main\\python\\model.py",
+      "sha256": "0adf09c0fc26ea473f5ec8da57180ed3ae2b525852eb238bb7d382949267ea5a",
+      "frozen": true,
+      "size": 3494
+    },
+    {
+      "path": "requirements-kronos-research.txt",
+      "source_path": "E:\\codx project\\期货评估器\\requirements-kronos-research.txt",
+      "sha256": "f5b6871a24a9314dace386078e4d5d02b17d06c58536e62972b635a4863e6d61",
+      "frozen": false,
+      "size": 283
+    },
+    {
+      "path": "requirements-research.txt",
+      "source_path": "E:\\codx project\\期货评估器\\requirements-research.txt",
+      "sha256": "8e7ea84f8751443e60949e23e3cbb47d22c8e259460099c75859c47a4cb72a6b",
+      "frozen": false,
+      "size": 131
+    },
+    {
+      "path": "research/__init__.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\__init__.py",
+      "sha256": "baf3851bde0f2a39613a35c094d4ccc0de41557346a9054e82e890dff773e669",
+      "frozen": false,
+      "size": 78
+    },
+    {
+      "path": "research/backtest.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\backtest.py",
+      "sha256": "ec0932324af477972c83fce6828dfae247c074c4336177fd8b920d0f04637f50",
+      "frozen": false,
+      "size": 14626
+    },
+    {
+      "path": "research/conditional_intraday.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\conditional_intraday.py",
+      "sha256": "07b8ddbe01aedfea0dfc226cc07f68f0eb3e8c1f87622446950458a1515b1d87",
+      "frozen": true,
+      "size": 4324
+    },
+    {
+      "path": "research/data_quality.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\data_quality.py",
+      "sha256": "8f4fc4a7001b89a3017b8b44ca522428801d4346f8497c6677d496783aa9f316",
+      "frozen": false,
+      "size": 524
+    },
+    {
+      "path": "research/direction_model.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\direction_model.py",
+      "sha256": "870383525d981fea74ff92880f9afd46683ffe08a23ac68754f63ee1b5ce032e",
+      "frozen": true,
+      "size": 3925
+    },
+    {
+      "path": "research/forward_runtime.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\forward_runtime.py",
+      "sha256": "d7405362d47d3bbe6da3e2b6f3411098a505811d1098d60676db5e5782af13be",
+      "frozen": true,
+      "size": 10333
+    },
+    {
+      "path": "research/intraday_profit.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\intraday_profit.py",
+      "sha256": "5e99d10c7a897e5aa817402d7cc0f7e722fdead1253c9bb09662b32b9d5f33f9",
+      "frozen": true,
+      "size": 6816
+    },
+    {
+      "path": "research/minute_intraday.py",
+      "source_path": "E:\\codx project\\期货评估器\\research\\minute_intraday.py",
+      "sha256": "b6a443d65f9e86e7ed7494352eba7e52eb380460b5398a105c02ae6ea170a0ec",
+      "frozen": true,
+      "size": 4073
+    },
+    {
+      "path": "tests/test_backtest.py",
+      "source_path": "E:\\codx project\\期货评估器\\tests\\test_backtest.py",
+      "sha256": "120746cf0a3fe0ee62918dcf345d15bab8893055075231da329db4203a3394e6",
+      "frozen": false,
+      "size": 5193
+    },
+    {
+      "path": "tests/test_direction_model.py",
+      "source_path": "E:\\codx project\\期货评估器\\tests\\test_direction_model.py",
+      "sha256": "6ec5accd14d83c14a589b565f0547dc6f22ebf1efe5318ed352d1e7c88ef54bb",
+      "frozen": false,
+      "size": 1755
+    },
+    {
+      "path": "tools/amend_forward_clock.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\amend_forward_clock.py",
+      "sha256": "d21b1d5b04d2ad35d55425ee1f8b85e8bd658ae04884943eca4438833b0903d9",
+      "frozen": false,
+      "size": 3358
+    },
+    {
+      "path": "tools/audit_backtest.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\audit_backtest.py",
+      "sha256": "770a43d00744a661ded609ca4536fb9e83856ca021fb72e98f77420466480897",
+      "frozen": false,
+      "size": 8459
+    },
+    {
+      "path": "tools/audit_decision_accuracy.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\audit_decision_accuracy.py",
+      "sha256": "68c9db110a595d201799330d1cf7c0d7d788099e0338c89d1285784a053e321b",
+      "frozen": false,
+      "size": 9252
+    },
+    {
+      "path": "tools/audit_decision_multimarket.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\audit_decision_multimarket.py",
+      "sha256": "179fa2979cf1ff16f9b9463e642de15b09204afa60d031fb91c3eb17d0abeaa3",
+      "frozen": false,
+      "size": 10412
+    },
+    {
+      "path": "tools/audit_gated_tick_fills.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\audit_gated_tick_fills.py",
+      "sha256": "4117eb77774d7c3d721af8ed6161c272a9df2cda6e5da097ab7929e5546c6460",
+      "frozen": false,
+      "size": 6015
+    },
+    {
+      "path": "tools/audit_tick_fills.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\audit_tick_fills.py",
+      "sha256": "1af7924a4b42d2bc953eb27269525ed9025e55c08cc62337696cb5e8d14510d2",
+      "frozen": false,
+      "size": 4843
+    },
+    {
+      "path": "tools/backtest_horizons.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\backtest_horizons.py",
+      "sha256": "63b0adf3510672f3016489428697e8d06f95b65d9fc54f548d3083716862a160",
+      "frozen": false,
+      "size": 12789
+    },
+    {
+      "path": "tools/collect_fine_minutes.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\collect_fine_minutes.py",
+      "sha256": "95ae58369e08e45f0eca11faff07478afae8b91d0794586221bae0062434ffcf",
+      "frozen": false,
+      "size": 5693
+    },
+    {
+      "path": "tools/diagnose_minute_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\diagnose_minute_15m.py",
+      "sha256": "be043a8b04fc62f745adb8883cf618c50c77d79fbb5bf9e73cb9d4b2cf98e034",
+      "frozen": false,
+      "size": 3033
+    },
+    {
+      "path": "tools/forward_decision_accuracy.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\forward_decision_accuracy.py",
+      "sha256": "2f1d224c51f0fddfaf3249f38f7e6504049dcc181b11306959034a7d135ad977",
+      "frozen": true,
+      "size": 12239
+    },
+    {
+      "path": "tools/forward_research.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\forward_research.py",
+      "sha256": "3cf840a096b174a6750a661bf0e2ac8c73a9d21c53fffdc5fe8d8c1d398434ff",
+      "frozen": true,
+      "size": 17718
+    },
+    {
+      "path": "tools/freeze_decision_qualification.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\freeze_decision_qualification.py",
+      "sha256": "988c8bc11c8ac4213ff6b924fab7444ae2d56175280e622120b12a68fa76cdc8",
+      "frozen": false,
+      "size": 1770
+    },
+    {
+      "path": "tools/infer_kronos_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\infer_kronos_15m.py",
+      "sha256": "711e9e121d13083757ff5007dd4b67b23fce2fba361da94d7825a3cd7584ea9a",
+      "frozen": false,
+      "size": 4046
+    },
+    {
+      "path": "tools/prepare_external_15m_data.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\prepare_external_15m_data.py",
+      "sha256": "5c34680374c89a3060ed022bd2a257e52677c951b6c1b71a3ef0fa7d4cc82b20",
+      "frozen": false,
+      "size": 5979
+    },
+    {
+      "path": "tools/prepare_kronos_research.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\prepare_kronos_research.py",
+      "sha256": "eac89863b2f4ab076fea708769ea6ca3bea877a4f9eca2e8e3649f8de8ae24e1",
+      "frozen": false,
+      "size": 1892
+    },
+    {
+      "path": "tools/prepare_minute_model.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\prepare_minute_model.py",
+      "sha256": "e98de982bba09497a28201748094bac0122c42af36dd4aa9a2817fe8a8a5e9f3",
+      "frozen": false,
+      "size": 5867
+    },
+    {
+      "path": "tools/probe_decision_live.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\probe_decision_live.py",
+      "sha256": "29503253e78d768c37c5c4837045c2bb9292bb21c2cc299e3b8a9585ac046d2f",
+      "frozen": false,
+      "size": 3548
+    },
+    {
+      "path": "tools/probe_fine_history.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\probe_fine_history.py",
+      "sha256": "abd111883356952d3de6240889eb014607875c1003a218b94568ec27c515c10e",
+      "frozen": false,
+      "size": 2391
+    },
+    {
+      "path": "tools/probe_forward_market.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\probe_forward_market.py",
+      "sha256": "63a18e8b10315b7aeaeb501802897522a857d29bdfcc7745d559ee3ca366838a",
+      "frozen": false,
+      "size": 1927
+    },
+    {
+      "path": "tools/replay_backtest_data.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\replay_backtest_data.py",
+      "sha256": "b529e1583ee73f619a6e4faabad228d8e66520615969ae4aae656e21edead9c5",
+      "frozen": false,
+      "size": 4472
+    },
+    {
+      "path": "tools/report_15m_profit_review.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_15m_profit_review.py",
+      "sha256": "1d52c9b7a3df9436cfc69830756c3c4c6f4cf6d09d5ba78501fbdabfef51b4c3",
+      "frozen": false,
+      "size": 5688
+    },
+    {
+      "path": "tools/report_decision_accuracy.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_decision_accuracy.py",
+      "sha256": "47a828343174d44f21f5a7db0a332609afde57abc71be765afcceee4e817fc17",
+      "frozen": false,
+      "size": 8522
+    },
+    {
+      "path": "tools/report_decision_factors.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_decision_factors.py",
+      "sha256": "11f8fd196c0417c7a67afb05509bc98062ecdc9e073c0b3196aa70af2fa5ce9e",
+      "frozen": false,
+      "size": 9810
+    },
+    {
+      "path": "tools/report_decision_multimarket.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_decision_multimarket.py",
+      "sha256": "95d84ecb3c7592c0b2412e790f50c0a3a0875b2025613d8ba3c71173c6c1e721",
+      "frozen": false,
+      "size": 11777
+    },
+    {
+      "path": "tools/report_decision_qualification.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_decision_qualification.py",
+      "sha256": "2841652d3ae90c3b2baad8175394ae84780f27605ea0ce5e5191f9d1779714db",
+      "frozen": false,
+      "size": 6793
+    },
+    {
+      "path": "tools/report_direction_models.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_direction_models.py",
+      "sha256": "721e39973e263a723d97cfaffb6d7405692088c32460283231fa27eb63715fa4",
+      "frozen": false,
+      "size": 11465
+    },
+    {
+      "path": "tools/report_forward_research.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_forward_research.py",
+      "sha256": "3b678f743e3045861da7bc5110bc09cfdda89e1daeb7bc4cc3778729ebfd0577",
+      "frozen": false,
+      "size": 6551
+    },
+    {
+      "path": "tools/report_gated_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_gated_15m.py",
+      "sha256": "d25f1ba8dd2bb8f3deae99b1bd9f5859838d52134aefecc01e88789de657b72f",
+      "frozen": false,
+      "size": 9792
+    },
+    {
+      "path": "tools/report_minute_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_minute_15m.py",
+      "sha256": "cf2af57af283869f251527b3825eab63e2e194ca30b6af360b90b8003952696e",
+      "frozen": false,
+      "size": 12367
+    },
+    {
+      "path": "tools/report_open_session.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_open_session.py",
+      "sha256": "d4f3107a8b39b67a12d67b5ab95a6506db3642a251b55ec3cd7057f42c1c3d27",
+      "frozen": false,
+      "size": 11819
+    },
+    {
+      "path": "tools/report_rolling_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_rolling_15m.py",
+      "sha256": "a2a0c52abc08db103bca3a254289bef375b12ce85a0084b0b359abc626c86914",
+      "frozen": false,
+      "size": 9710
+    },
+    {
+      "path": "tools/report_signal_controls.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\report_signal_controls.py",
+      "sha256": "bf9c53b33cea3b50b80ae5a3df323e00b6e04853a70995cd38a6f3f010b1c2ae",
+      "frozen": false,
+      "size": 8427
+    },
+    {
+      "path": "tools/research_15m_cost_features.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_15m_cost_features.py",
+      "sha256": "92c137c7ac6b01e6fe8e37fb72dc694e87ea2a4e6cbd4ff79847a447d4d91bc7",
+      "frozen": false,
+      "size": 7679
+    },
+    {
+      "path": "tools/research_15m_profit.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_15m_profit.py",
+      "sha256": "02b5029ed4162ea255cf43426db84ba92d7d15b77c343eed1879d806222a87b3",
+      "frozen": false,
+      "size": 15051
+    },
+    {
+      "path": "tools/research_conditional_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_conditional_15m.py",
+      "sha256": "1ae091512fc6d5a450626985f0ec71b0500eb3b668d734ef238bfeee51fa709b",
+      "frozen": false,
+      "size": 15327
+    },
+    {
+      "path": "tools/research_decision_factors.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_decision_factors.py",
+      "sha256": "9cb7984a3af394f0280dc2138452d356ff4a5738fac0c0aa6e9f4eca746e6510",
+      "frozen": false,
+      "size": 9080
+    },
+    {
+      "path": "tools/research_fill_prefix.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_fill_prefix.py",
+      "sha256": "9813f00ef0a61588105d7834fc134b8fd5639b25df7a1abb0571d5622fb378ed",
+      "frozen": false,
+      "size": 3779
+    },
+    {
+      "path": "tools/research_gated_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_gated_15m.py",
+      "sha256": "25e88d5e78e05ee60b9771d4eff44aafb84c09b0cfc1f21a950263cf6d7ab2b7",
+      "frozen": true,
+      "size": 15670
+    },
+    {
+      "path": "tools/research_history.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_history.py",
+      "sha256": "52a25d4e3d8593f7a0be6e6a70bc2a957171c3afbe2084f593279d7ea423b063",
+      "frozen": false,
+      "size": 5059
+    },
+    {
+      "path": "tools/research_minute_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_minute_15m.py",
+      "sha256": "badbf16e1066e22beb527bf50b0be940e723d33cc02e3ee1e7b51e7992667cb7",
+      "frozen": false,
+      "size": 8429
+    },
+    {
+      "path": "tools/research_process_helpers.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_process_helpers.ps1",
+      "sha256": "5f3e41e936a4a223828767006f4ed91f11e7ae224c6bc064fbd843c56f7cda3d",
+      "frozen": false,
+      "size": 2527
+    },
+    {
+      "path": "tools/research_rolling_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_rolling_15m.py",
+      "sha256": "60753f57f428dba412b1e64d0c2255e24effe5f48e4888994412ac277ce0647a",
+      "frozen": true,
+      "size": 12368
+    },
+    {
+      "path": "tools/research_signal_controls.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_signal_controls.py",
+      "sha256": "7a713f71621a86059d339953debda4b5524108259c2a110f6f5306a30fc843b7",
+      "frozen": false,
+      "size": 15733
+    },
+    {
+      "path": "tools/research_supervisor_launcher.pyw",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_supervisor_launcher.pyw",
+      "sha256": "346dbe02f89732cad585474f3577fc850069458c9c3b9d86fcc51fe049e84b11",
+      "frozen": false,
+      "size": 2486
+    },
+    {
+      "path": "tools/research_universe.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_universe.py",
+      "sha256": "1f923de908ac66209e54fd92c709051794403e9582effc9dad8c44887ec494af",
+      "frozen": false,
+      "size": 2387
+    },
+    {
+      "path": "tools/research_warmup.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\research_warmup.py",
+      "sha256": "e9a7a79a99d7422ef979fc2ff1e3f6733490d2954067045cfe0c118dcb642dd6",
+      "frozen": false,
+      "size": 2682
+    },
+    {
+      "path": "tools/start_decision_accuracy.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\start_decision_accuracy.ps1",
+      "sha256": "6fcec7dc9b05e206ee4901a8cb8bed3d2db3ca1fad1be57e6584cd66d7c440d0",
+      "frozen": false,
+      "size": 480
+    },
+    {
+      "path": "tools/start_decision_supervisor.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\start_decision_supervisor.ps1",
+      "sha256": "8d359000b90b1d0521fca135b1f58f870bc87490f145ab0d205ea853c3804870",
+      "frozen": false,
+      "size": 2195
+    },
+    {
+      "path": "tools/start_forward_research.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\start_forward_research.ps1",
+      "sha256": "b507ce4dcb1300eaf0d36098c8a9ef8030d7bc0fa0073a4a55a81e488de978c8",
+      "frozen": false,
+      "size": 336
+    },
+    {
+      "path": "tools/stop_decision_supervisor.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\stop_decision_supervisor.ps1",
+      "sha256": "c4ac639db14d29b70cbb000cd200a3a3431c657589c51faa192f88eb22d2d24a",
+      "frozen": false,
+      "size": 533
+    },
+    {
+      "path": "tools/supervise_decision_research.ps1",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\supervise_decision_research.ps1",
+      "sha256": "5868e7a8f0039f0a506679cd5994e5ee7f082d7b97a7e1ed115b46a413155d57",
+      "frozen": false,
+      "size": 2195
+    },
+    {
+      "path": "tools/train_direction_models.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\train_direction_models.py",
+      "sha256": "7faf269448924b979551a64b712f3282ebedbde61c21ab52f50ff31f5d72a5db",
+      "frozen": false,
+      "size": 11384
+    },
+    {
+      "path": "tools/train_full_event_filter_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\train_full_event_filter_15m.py",
+      "sha256": "f147e515abc933f5d119f943a038e140321d9a36ace7b576ac4572aa453a573e",
+      "frozen": false,
+      "size": 4192
+    },
+    {
+      "path": "tools/validate_external_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\validate_external_15m.py",
+      "sha256": "6f50101d0f2ebdb240357398e259b49f8802ce01a0400dd642ba4590fd6c61df",
+      "frozen": false,
+      "size": 18593
+    },
+    {
+      "path": "tools/verify_conditional_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_conditional_15m.py",
+      "sha256": "f1caddd695bab115edddebd71331d45fb69558e65c6471096e0aa6e34f903ae0",
+      "frozen": false,
+      "size": 4458
+    },
+    {
+      "path": "tools/verify_decision_forward.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_decision_forward.py",
+      "sha256": "607e5785981b0f9f222461dbc2222796d8ab257e49ecc3275724649505f33199",
+      "frozen": false,
+      "size": 5778
+    },
+    {
+      "path": "tools/verify_decision_observer.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_decision_observer.py",
+      "sha256": "c5426291e1034cdecf8701ce9eeb8238aa70adaad4fece7c225c80130403a651",
+      "frozen": false,
+      "size": 5221
+    },
+    {
+      "path": "tools/verify_external_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_external_15m.py",
+      "sha256": "2b6a78ef5da625cb9cc0e3cd17a7859909ef557a8db7e90e9427f8667e8940af",
+      "frozen": false,
+      "size": 4858
+    },
+    {
+      "path": "tools/verify_forward_research.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_forward_research.py",
+      "sha256": "b3a99c6b3bc07f9ec8d194d7e0602c7aef01d0025c3cc687da0e2039c74b8232",
+      "frozen": false,
+      "size": 5051
+    },
+    {
+      "path": "tools/verify_gated_ticks.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_gated_ticks.py",
+      "sha256": "a21b7023138056428fdec9e7f60697032cdbb29672ae38b0c20bb4d8e9051ce0",
+      "frozen": false,
+      "size": 3132
+    },
+    {
+      "path": "tools/verify_minute_15m.py",
+      "source_path": "E:\\codx project\\期货评估器\\tools\\verify_minute_15m.py",
+      "sha256": "224d7e293aca361615c9d748a79edeceababbbb0817cfb098b42f261dc1aee03",
+      "frozen": false,
+      "size": 4625
+    }
+  ]
+}

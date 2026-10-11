@@ -48,3 +48,4 @@ mobile-app/keystore.properties
 *.keystore
 *.jks
 ui_dump.xml
+.local/

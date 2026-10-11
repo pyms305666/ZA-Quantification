@@ -1,0 +1,4 @@
+# Optional offline research tools; not needed by desktop or Android runtime.
+tqsdk==3.10.2
+matplotlib>=3.10,<4
+scikit-learn==1.9.1

@@ -1,0 +1,7 @@
+# Optional isolated Kronos inference; first install torch==2.8.0 from the
+# official cu128 index for the verified Windows RTX 5060 runtime.
+# Existing requirements-research.txt packages are inherited by the venv.
+einops==0.8.1
+huggingface_hub==0.33.1
+safetensors==0.6.2
+tqdm==4.67.1
