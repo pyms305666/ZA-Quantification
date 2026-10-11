@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from config import Config
@@ -14,6 +14,7 @@ from tq.client import TqClient
 from tq.instruments import InstrumentManager
 from tq.subscriber import SubscriptionManager
 from api.websocket import ConnectionManager
+from ws_transport import QuoteIngress
 
 
 @dataclass
@@ -26,7 +27,7 @@ class Services:
     subscriptions: SubscriptionManager
     cache: QuoteCache
     connections: ConnectionManager
-    broadcast_queue: Optional[asyncio.Queue] = None   # 延迟创建：asyncio.Queue 会绑定创建它的 loop
+    broadcast_ingress: Optional[QuoteIngress] = None
     loop: Optional[asyncio.AbstractEventLoop] = None
     auto_exit_idle_seconds: Optional[int] = None   # 无浏览器连接自动退出阈值（None=不启用）
     # ---- 延迟统计埋点（P0-200ms）：行情到达时刻与累计笔数，status 接口对外输出 ----
@@ -35,12 +36,29 @@ class Services:
 
     def start(self) -> None:
         """先启动恢复 worker，避免首个连接通知发生在 worker 启动之前。"""
+        reopen = getattr(self.connections, "reopen", None)
+        if reopen is not None and getattr(self.connections, "_closing", False):
+            reopen()
+        if self.loop is not None:
+            self.attach_ingress()
         self.subscriptions.start()
         self.client.start()
+
+    def attach_ingress(self) -> QuoteIngress:
+        if self.broadcast_ingress is None or self.broadcast_ingress.closed:
+            self.broadcast_ingress = QuoteIngress(self.loop, self._broadcast_batch)
+        return self.broadcast_ingress
+
+    def _broadcast_batch(self, quotes: list) -> None:
+        for quote in quotes:
+            self.connections.broadcast({"type": "quote", "symbol": quote.symbol,
+                                        "data": quote.to_dict()})
 
     async def close(self) -> None:
         """停止恢复、关闭连接与行情线程；阻塞 join 不占 Web 事件循环。"""
         self.loop = None
+        if self.broadcast_ingress is not None:
+            self.broadcast_ingress.close()
         self.subscriptions.request_stop()
         close_all = getattr(self.connections, "close_all", None)
         if close_all is not None:
@@ -56,11 +74,9 @@ class Services:
         self.last_quote_unix = time.time()
         self.quote_recv_total += 1
         self.cache.set(quote)  # type: ignore[arg-type]
-        loop = self.loop
-        if loop is not None:
-            if self.broadcast_queue is None:
-                self.broadcast_queue = asyncio.Queue()
-            loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, quote)
+        ingress = self.broadcast_ingress
+        if self.loop is not None and ingress is not None:
+            ingress.submit(quote)
 
 
 def build_services(config: Config,
@@ -97,14 +113,5 @@ def build_services(config: Config,
 
 
 async def _broadcast_loop(services: Services) -> None:
-    """WS 广播泵：把行情回调线程投递进队列的快照逐个推给所有 WS 客户端。
-
-    在 uvicorn 事件循环里作为后台任务常驻（api/http.py lifespan 启动）。
-    队列惰性创建（asyncio.Queue 绑定创建它的 loop），put 端在行情线程经
-    call_soon_threadsafe 投递，本协程只负责 get + 广播。
-    """
-    while True:
-        if services.broadcast_queue is None:
-            services.broadcast_queue = asyncio.Queue()
-        quote = await services.broadcast_queue.get()
-        await services.connections.broadcast_quote(quote)
+    """受管入口生命周期；实际批量广播由有界 ingress 在 Web loop 调度。"""
+    await services.attach_ingress().wait_closed()

@@ -517,11 +517,18 @@ class ServiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
         closed = []
 
         class Socket:
+            async def accept(self):
+                pass
+
+            async def send_json(self, payload):
+                pass
+
             async def close(self, code):
                 closed.append(code)
                 raise RuntimeError("Fake socket already closed")
 
-        manager._connections.update([Socket(), Socket()])
+        await manager.connect(Socket(), {"type": "hello"})
+        await manager.connect(Socket(), {"type": "hello"})
         await manager.close_all()
         self.assertEqual(closed, [1001, 1001])
         self.assertEqual(manager.client_count(), 0)

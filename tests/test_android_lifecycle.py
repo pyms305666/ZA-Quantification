@@ -77,7 +77,13 @@ class MobileHubLifecycleTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self, name):
                 self.name = name
 
-            async def close(self):
+            async def accept(self):
+                pass
+
+            async def send_json(self, payload):
+                pass
+
+            async def close(self, code):
                 closed.append(self.name)
                 if self.name == "failed":
                     raise RuntimeError("already closed")
@@ -87,7 +93,8 @@ class MobileHubLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     finally:
                         slow_cancelled.set()
 
-        self.hub.connections.extend(Socket(name) for name in ("fast", "failed", "slow"))
+        for name in ("fast", "failed", "slow"):
+            await self.hub.connections.connect(Socket(name), {"type": "hello"})
         self.hub.on_startup()
         task = self.hub.broadcast_task
         await asyncio.sleep(0)  # 让广播泵进入 queue.get，不依赖定时 sleep。
@@ -103,9 +110,9 @@ class MobileHubLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(slow_cancelled.is_set())
         self.assertTrue(task.cancelled())
         self.assertIsNone(self.hub.loop)
-        self.assertIsNone(self.hub.queue)
+        self.assertIsNone(self.hub.ingress)
         self.assertIsNone(self.hub.broadcast_task)
-        self.assertEqual(self.hub.connections, [])
+        self.assertEqual(self.hub.connections.client_count(), 0)
         self.assertEqual(self.services.closes, 1)
 
     async def test_quote_after_shutdown_still_updates_cache_without_enqueue(self):
@@ -115,7 +122,7 @@ class MobileHubLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.hub.on_quote_change(quote)
         self.services.cache.set.assert_called_once_with(quote)
         self.assertEqual(self.services.quote_recv_total, 1)
-        self.assertIsNone(self.hub.queue)
+        self.assertIsNone(self.hub.ingress)
 
     async def test_lifespan_shuts_down_after_body_error(self):
         hub = types.SimpleNamespace(static_dir=None, on_startup=mock.Mock(),

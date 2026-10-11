@@ -16,85 +16,23 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from market.model import MarketQuote
+from ws_transport import TransportClosed, WebSocketHub
 
 if TYPE_CHECKING:
     from .http import Services
 
 
-class ConnectionManager:
+class ConnectionManager(WebSocketHub):
     """所有 WebSocket 客户端共用一个 TqApi / 一套推送（避免每客户端一个连接）。"""
 
-    def __init__(self) -> None:
-        self._connections: set[WebSocket] = set()
-        self._lock = asyncio.Lock()
-        self._empty_since: Optional[float] = time.monotonic()   # 进程启动时就没有连接
-
-    async def connect(self, websocket: WebSocket) -> None:
-        """接受一条 WS 连接并登记（空连接计时清零，自动退出保险停表）。"""
-        await websocket.accept()
-        async with self._lock:
-            self._connections.add(websocket)
-            self._empty_since = None                # 有连接了，清空计时
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        """移除一条连接；若是最后一个客户端，开始记录空连接起始时刻。"""
-        async with self._lock:
-            self._connections.discard(websocket)
-            if not self._connections and self._empty_since is None:
-                self._empty_since = time.monotonic()   # 最后一个连接走了，开始计时
-
-    def idle_seconds(self) -> Optional[float]:
-        """没有任何浏览器连接的持续秒数；有连接时返回 None（自动退出保险用）
-
-        注意：connect/disconnect/本方法都只在事件循环线程里执行，
-        直接读浮点字段是安全的——这里绝不能用 asyncio.Lock 的同步 with。
-        """
-        if self._connections:
-            return None
-        if self._empty_since is None:
-            self._empty_since = time.monotonic()
-        return time.monotonic() - self._empty_since
-
-    def client_count(self) -> int:
-        """当前 WebSocket 客户端数量（status 延迟统计用）。"""
-        return len(self._connections)
-
-    async def close_all(self) -> None:
-        """关停时主动结束客户端连接，使接收中的 WS 路由能够退出。"""
-        async with self._lock:
-            targets = list(self._connections)
-            self._connections.clear()
-            self._empty_since = time.monotonic()
-
-        async def close(websocket: WebSocket) -> None:
-            try:
-                await asyncio.wait_for(websocket.close(code=1001), timeout=1.0)
-            except Exception:
-                pass
-
-        await asyncio.gather(*(close(websocket) for websocket in targets))
-
     async def broadcast_quote(self, quote: MarketQuote) -> None:
-        """向所有在线客户端推送一条行情快照；推送失败的连接立即摘除。
-
-        ts 为服务端发送时刻（Unix 秒）——前端用它计算端到端延迟（P0-200ms 埋点）。
-        """
-        # ts：服务端发送时刻（Unix 秒）——前端用它计算端到端延迟（P0-200ms 埋点）
-        payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
-                   "ts": time.time()}
-        async with self._lock:
-            targets = list(self._connections)
-        for websocket in targets:
-            try:
-                await websocket.send_json(payload)
-            except Exception:
-                await self.disconnect(websocket)
+        """广播只入队；发送时由连接 sender 添加实际发送时刻 ts。"""
+        self.broadcast({"type": "quote", "symbol": quote.symbol, "data": quote.to_dict()})
 
 
 def create_ws_router(services: "Services") -> APIRouter:
@@ -108,35 +46,37 @@ def create_ws_router(services: "Services") -> APIRouter:
         阻塞操作不占事件循环）；订阅成功后补发缓存快照，保证休市时段
         页面也能立刻见到行情。
         """
-        await services.connections.connect(websocket)
-        await websocket.send_json({
-            "type": "hello",
-            "connected": services.client.connected,
-            "subscribed": services.subscriptions.subscribed(),
-        })
         try:
+            await services.connections.connect(websocket, {
+                "type": "hello",
+                "connected": services.client.connected,
+                "subscribed": services.subscriptions.subscribed(),
+            })
             while True:
                 message = await websocket.receive_json()
                 action = str(message.get("action", "")).lower()
                 symbols = message.get("symbols") or []
                 if action == "subscribe":
-                    result = await asyncio.to_thread(services.subscriptions.subscribe, list(symbols))
-                    await websocket.send_json({"type": "subscribed", **result})
+                    result = await asyncio.get_running_loop().run_in_executor(
+                        None, services.subscriptions.subscribe, list(symbols))
+                    await services.connections.send_control(websocket, {"type": "subscribed", **result})
                     # 已订阅(skipped)的合约也要补发快照：休市时段无行情推送，
                     # 否则页面在订阅已存在时永远收不到首笔行情
                     for symbol in dict.fromkeys(result["subscribed"] + result.get("skipped", [])):
                         cached = services.cache.get(symbol)
                         if cached is not None:
-                            await websocket.send_json(
+                            await services.connections.send_control(websocket,
                                 {"type": "quote_snapshot", "symbol": symbol, "data": cached.to_dict()})
                 elif action == "unsubscribe":
-                    result = await asyncio.to_thread(services.subscriptions.unsubscribe, list(symbols))
-                    await websocket.send_json({"type": "unsubscribed", **result})
+                    result = await asyncio.get_running_loop().run_in_executor(
+                        None, services.subscriptions.unsubscribe, list(symbols))
+                    await services.connections.send_control(websocket, {"type": "unsubscribed", **result})
                 elif action == "ping":
-                    await websocket.send_json({"type": "pong"})
+                    await services.connections.send_control(websocket, {"type": "pong"})
                 else:
-                    await websocket.send_json({"type": "error", "message": f"未知 action：{action}"})
-        except WebSocketDisconnect:
+                    await services.connections.send_control(
+                        websocket, {"type": "error", "message": f"未知 action：{action}"})
+        except (WebSocketDisconnect, TransportClosed):
             pass
         finally:
             await services.connections.disconnect(websocket)

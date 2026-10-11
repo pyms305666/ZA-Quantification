@@ -62,10 +62,14 @@ async function check(browser, mobile) {
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort("blockedbyclient"));
   await context.addInitScript(() => {
     window.__fixtureSockets = [];
+    window.__fixtureVisibility = value => {
+      Object.defineProperty(document, "visibilityState", {configurable:true, value});
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
     window.WebSocket = class {
-      constructor() {this.readyState=1;this.sent=[];window.__fixtureSockets.push(this);queueMicrotask(()=>this.onopen?.());}
-      send(data) {this.sent.push(JSON.parse(data));}
-      close() {this.readyState=3;}
+      constructor() {this.readyState=0;this.sent=[];window.__fixtureSockets.push(this);queueMicrotask(()=>{if(this.readyState===0){this.readyState=1;this.onopen?.();}});}
+      send(data) {if(this.readyState!==1)throw Error("socket not open");this.sent.push(JSON.parse(data));}
+      close() {this.readyState=3;queueMicrotask(()=>this.onclose?.());}
       emit(message) {this.onmessage?.({data:JSON.stringify(message)});}
     };
   });
@@ -112,6 +116,21 @@ async function check(browser, mobile) {
     if(mobile) {
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth+1),"mobile must not overflow horizontally");
     }
+
+    await page.evaluate(async () => {
+      const n=__fixtureSockets.length, old=state.ws;
+      connectWS();connectWS();__fixtureVisibility("hidden");__fixtureVisibility("visible");
+      if(__fixtureSockets.length!==n)throw Error("duplicate healthy socket");
+      const callbacks=[old.onopen,old.onclose,old.onerror,old.onmessage];
+      __fixtureVisibility("hidden");old.close();await new Promise(resolve=>setTimeout(resolve,0));
+      if(__fixtureSockets.length!==n)throw Error("background reconnected");
+      __fixtureVisibility("visible");__fixtureVisibility("visible");await new Promise(resolve=>setTimeout(resolve,0));
+      if(__fixtureSockets.length!==n+1)throw Error("foreground duplicate socket");
+      const current=state.ws;
+      const pack=last=>({type:"quote",symbol:state.symbol,data:{symbol:state.symbol,last,pre_close:110,ask:[],bid:[]}});
+      current.emit(pack(222));callbacks[0]();callbacks[1]();callbacks[2]();callbacks[3]({data:JSON.stringify(pack(999))});
+      if(state.ws!==current || state.quote.last!==222 || current.readyState!==1)throw Error("stale socket callback");
+    });
 
     // Real ECharts preserves a user zoom on an ordinary refresh of the same selection.
     await page.evaluate(async mobile => {

@@ -22,6 +22,9 @@ function harness(mobile, deferCatalog = false) {
   const staticRoot = path.join(root, mobile ? "mobile-app/app/src/main/python/static" : "static");
   const elements = new Map(), requests = [], intervals = [], timeouts = new Map(), charts = [], sockets = [], logs = [];
   const windowEvents = new Map(), documentEvents = new Map();
+  const listen = (events, name, fn) => {if (!events.has(name)) events.set(name, new Set()); events.get(name).add(fn);};
+  const unlisten = (events, name, fn) => events.get(name)?.delete(fn);
+  const dispatch = (events, event) => {for (const fn of events.get(event.type) || []) fn(event);};
   let nextTimer = 0;
   function element(id) {
     if (elements.has(id)) return elements.get(id);
@@ -71,21 +74,32 @@ function harness(mobile, deferCatalog = false) {
     localStorage: {getItem: key => key === "watchlist" ? JSON.stringify([A, B]) : null, setItem() {}},
     document: {visibilityState: "visible", body: element("body"), getElementById: element,
       querySelector: element, querySelectorAll: () => [], createElement: () => element(`created-${elements.size}`),
-      addEventListener: (name, fn) => documentEvents.set(name, fn)},
+      addEventListener: (name, fn) => listen(documentEvents, name, fn),
+      removeEventListener: (name, fn) => unlisten(documentEvents, name, fn)},
     getComputedStyle: () => ({backgroundColor: "fixture"}),
     location: {protocol: "http:", host: "fixture.invalid"}, echarts: {init: chart}, fetch: fetchFake,
     setTimeout: (fn, delay) => {const id = ++nextTimer; timeouts.set(id, {fn, delay}); return id;},
     clearTimeout: id => timeouts.delete(id), setInterval: (fn, delay) => {intervals.push({fn, delay}); return intervals.length;},
-    addEventListener: (name, fn) => windowEvents.set(name, fn), dispatchEvent: e => windowEvents.get(e.type)?.(e),
-    WebSocket: class {constructor() {this.readyState = 1; this.sent = []; sockets.push(this);} send(data) {this.sent.push(JSON.parse(data));} close() {}},
+    addEventListener: (name, fn) => listen(windowEvents, name, fn), removeEventListener: (name, fn) => unlisten(windowEvents, name, fn),
+    dispatchEvent: e => dispatch(windowEvents, e),
+    WebSocket: class {
+      constructor(url) {this.url = url; this.readyState = 0; this.sent = []; sockets.push(this); queueMicrotask(() => this.open());}
+      open() {if (this.readyState !== 0) return; this.readyState = 1; this.onopen?.();}
+      send(data) {assert.equal(this.readyState, 1); this.sent.push(JSON.parse(data));}
+      close() {if (this.readyState >= 2) return; this.readyState = 2; queueMicrotask(() => this.disconnect());}
+      disconnect() {this.readyState = 3; this.onclose?.();}
+      emit(message) {this.onmessage?.({data: JSON.stringify(message)});}
+    },
   });
   context.window = context;
   vm.runInContext(fs.readFileSync(path.join(staticRoot, "decision-controls.js"), "utf8"), context);
+  vm.runInContext(fs.readFileSync(path.join(staticRoot, "market-connection.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(staticRoot, "app.js"), "utf8"), context);
   return {context, requests, intervals, timeouts, charts, sockets, logs, element,
     run: code => vm.runInContext(code, context),
     latest: kind => requests.filter(r => r.url.startsWith(`/api/v1/${kind}/`)).at(-1),
     count: kind => requests.filter(r => r.url.startsWith(`/api/v1/${kind}/`)).length,
+    visibility(value) {context.document.visibilityState = value; dispatch(documentEvents, new Event("visibilitychange"));},
     period(period) {
       if (mobile) this.run(`setPeriod(${period})`);
       else element("periods").listeners.get("click")({target: {closest: () => ({dataset: {period}, classList: {add() {}}})}});
@@ -111,6 +125,24 @@ function assertCleared(h, mobile) {
 
 async function check(mobile) {
   const name = mobile ? "mobile" : "desktop";
+  // Both apps retain one healthy socket and reject all callbacks from a replaced connection.
+  const connection = harness(mobile); await flush();
+  const originalSocket = connection.sockets[0];
+  connection.run("connectWS(); connectWS()"); connection.visibility("hidden"); connection.visibility("visible"); await flush();
+  assert.equal(connection.sockets.length, 1); assert.equal(originalSocket.readyState, 1);
+  connection.visibility("hidden"); originalSocket.disconnect();
+  assert.ok(![...connection.timeouts.values()].some(timer => timer.delay === 3000));
+  const oldCallbacks = {open: originalSocket.onopen, close: originalSocket.onclose, error: originalSocket.onerror, message: originalSocket.onmessage};
+  connection.visibility("visible"); connection.visibility("visible"); await flush();
+  assert.equal(connection.sockets.length, 2); const activeSocket = connection.sockets[1];
+  assert.equal(connection.run("state.ws"), activeSocket);
+  const message = last => ({type: "quote", symbol: A, data: {symbol: A, last, pre_close: 110,
+    open: 111, high: 112, low: 109, volume: 1, open_interest: 1, ask: [], bid: []}});
+  activeSocket.emit(message(222)); const sentCount = activeSocket.sent.length;
+  oldCallbacks.open(); oldCallbacks.close(); oldCallbacks.error(); oldCallbacks.message({data: JSON.stringify(message(999))});
+  assert.equal(connection.run("state.quote.last"), 222); assert.equal(connection.run("state.ws"), activeSocket);
+  assert.equal(activeSocket.readyState, 1); assert.equal(activeSocket.sent.length, sentCount);
+  assert.equal(connection.sockets.length, 2); assert.ok(![...connection.timeouts.values()].some(timer => timer.delay === 3000));
   // Polls share slow work rather than creating a new request or aborting it.
   const poll = harness(mobile); await flush();
   const firstKline = poll.latest("kline"), firstDecision = poll.latest("decision");
@@ -204,8 +236,17 @@ async function check(mobile) {
     remove.run(`removeWatch(${JSON.stringify(B)})`); await flush(); assert.equal(remove.run("state.symbol"), B); assert.equal(remove.run("state.watchlist.length"), 0);
     const other = harness(true); await flush(); other.run(`removeWatch(${JSON.stringify(B)})`);
     assert.equal(other.run("state.symbol"), A); assert.ok(other.sockets[0].sent.some(m => m.action === "unsubscribe" && m.symbols.includes(B)));
+    const removing = harness(true); await flush();
+    removing.sockets[0].emit({type: "subscribed", failed: [{symbol: B}]});
+    const retry = [...removing.timeouts.entries()].find(([, timer]) => timer.delay === 1000);
+    assert.ok(retry); removing.run(`removeWatch(${JSON.stringify(B)})`);
+    assert.equal(removing.timeouts.has(retry[0]), false); const sentBefore = removing.sockets[0].sent.length;
+    retry[1].fn(); assert.equal(removing.sockets[0].sent.length, sentBefore);
+    assert.equal(removing.sockets[0].sent.at(-1).action, "unsubscribe");
+    removing.sockets[0].emit({type: "subscribed", failed: [{symbol: B}]});
+    assert.ok(![...removing.timeouts.values()].some(timer => timer.delay === 1000));
   }
-  console.log(`PASS ${name}: cancellation, catalogue wait, success/error/finally races, slow polling, DOM clearing, period and zoom`);
+  console.log(`PASS ${name}: cancellation, catalogue wait, success/error/finally races, slow polling, DOM clearing, period, zoom and socket identity/visibility`);
 }
 
 (async () => {await check(false); await check(true);})().catch(error => {console.error(error); process.exitCode = 1;});

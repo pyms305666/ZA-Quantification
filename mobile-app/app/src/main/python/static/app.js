@@ -87,9 +87,10 @@ function removeWatch(symbol) {
     // 有剩余自选时沿用同一切换入口，空自选仍保留当前查看合约。
     if (state.watchlist.length) switchSymbol(state.watchlist[0], { navigate: false });
     else sendSubscribe();
-  } else if (state.ws && state.ws.readyState === 1) {
+  } else {
+    marketConnection.subscribe({send: false});
     // 删除非当前合约：取消订阅该合约，避免残留
-    state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: [symbol] }));
+    marketConnection.send({ action: "unsubscribe", symbols: [symbol] });
   }
   renderWatchlist();
 }
@@ -458,18 +459,14 @@ async function loadStatus() {
 /**
  * 建立行情 WebSocket：订阅全部自选；收到 quote/quote_snapshot 时更新主报价区
  * 与自选行，并做端到端延迟统计（每 100 笔打一条 console 日志）；
- * 订阅失败（后端未就绪窗口）触发退避重试；断线 3 秒后自动重连
- * （页面不可见时不重连，切回前台由 visibilitychange 统一处理）。
+ * 连接身份、订阅退避与前后台恢复由共享连接层管理。
  */
-function connectWS() {
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`);
-  state.ws = ws;
-  ws.onopen = () => {
-    // 订阅全部自选合约（不只是当前查看的），这样自选列表每行都能实时更新价格
-    sendSubscribe();
-  };
-  ws.onmessage = (event) => {
-    let msg; try { msg = JSON.parse(event.data); } catch { return; }
+const marketConnection = MarketConnection.create({
+  url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`,
+  // 全部自选都需要实时价格；保留当前查看合约，即使自选已空。
+  getSymbols: () => [state.symbol, ...state.watchlist],
+  onState: ({socket}) => { state.ws = socket; },
+  onMessage: (msg) => {
     if (msg.type === "quote" || msg.type === "quote_snapshot") {
       // 端到端延迟埋点（P0-200ms）：服务端发送时刻 msg.ts → WebView 收到
       if (msg.ts) {
@@ -483,32 +480,14 @@ function connectWS() {
       // 当前查看的合约更新主报价区；自选列表里所有合约都更新对应行
       if (msg.symbol === state.symbol) { state.quote = msg.data; renderQuote(); }
       updateWatchPrice(msg.symbol, msg.data);
-    } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
-      // 缺陷 A 前端：订阅失败（后端尚未连接就绪）——退避重试，不丢一次即放弃。
-      // 后端也会在 on_connected 时重放 pending，这里兜底防"hello 之后还没就绪"的窗口。
-      retrySubscribe();
     }
-  };
-  ws.onclose = () => setTimeout(() => { if (document.visibilityState !== "hidden") connectWS(); }, 3000);
-}
+  },
+});
+function connectWS() { marketConnection.connect(); }
 
 /* 发送一次订阅全部自选（onopen / 重试 / 切换合约共用） */
 function sendSubscribe() {
-  if (!state.ws || state.ws.readyState !== 1) return;
-  const all = [...new Set([state.symbol, ...state.watchlist])];
-  if (all.length) state.ws.send(JSON.stringify({ action: "subscribe", symbols: all }));
-}
-
-/* 退避重试订阅：首次 1s，之后 2s/4s，封顶 5s，最多 6 次（~20s 窗口） */
-function retrySubscribe() {
-  clearTimeout(state._retryTimer);
-  state._retryCount = (state._retryCount || 0) + 1;
-  if (state._retryCount > 6) { state._retryCount = 0; return; }
-  const delay = Math.min(5000, 1000 * Math.pow(2, state._retryCount - 1));
-  state._retryTimer = setTimeout(() => {
-    state._retryCount = 0;
-    sendSubscribe();
-  }, delay);
+  marketConnection.subscribe();
 }
 
 /* 更新自选列表里某一行的价格（即使不是当前查看的合约） */
@@ -738,6 +717,6 @@ async function init() {
   setInterval(loadKline, 20000);
   setInterval(loadDecision, 6000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { connectWS(); loadStatus(); loadKline(); }
+    if (document.visibilityState === "visible") { loadStatus(); loadKline(); }
   });
 })();

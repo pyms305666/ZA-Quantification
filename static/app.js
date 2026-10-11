@@ -552,20 +552,19 @@ async function loadStatus() {
 /* ---------------- WebSocket ---------------- */
 /**
  * 行情 WebSocket：onopen 订阅当前合约；quote/quote_snapshot 更新报价头/盘口/
- * 最新价标线并做端到端延迟统计；订阅失败 5 秒重试；断线 3 秒重连（页面隐藏时不连）。
+ * 最新价标线并做端到端延迟统计；连接与订阅重试由共享连接层管理。
  */
-function connectWS() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws/market`);
-  state.ws = ws;
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
-    $("st-ws").textContent = "WebSocket：已连接";
-    $("st-ws").className = "ok";
-  };
-  ws.onmessage = (event) => {
-    let msg;
-    try { msg = JSON.parse(event.data); } catch { return; }
+const marketConnection = MarketConnection.create({
+  url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`,
+  getSymbols: () => [state.symbol],
+  onState: ({status, socket}) => {
+    state.ws = socket;
+    $("st-ws").textContent = status === "open" ? "WebSocket：已连接"
+      : status === "paused" ? "WebSocket：断开，等待返回前台"
+      : status === "connecting" ? "WebSocket：连接中…" : "WebSocket：断开，重连中…";
+    $("st-ws").className = status === "open" ? "ok" : "err";
+  },
+  onMessage: (msg) => {
     if (msg.type === "quote" || msg.type === "quote_snapshot") {
       if (msg.symbol !== state.symbol) return;
       state.quote = msg.data;
@@ -583,25 +582,10 @@ function connectWS() {
       renderQuoteBar();
       renderDepth();
       $("st-updated").textContent = `更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}${latencyText}`;
-    } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
-      // 订阅失败（如连接预热期）：5 秒后自动重试
-      setTimeout(() => {
-        if (state.ws && state.ws.readyState === 1) {
-          state.ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
-        }
-      }, 5000);
-    } else if (msg.type === "hello") {
-      $("st-ws").textContent = "WebSocket：已连接";
-      $("st-ws").className = "ok";
     }
-  };
-  ws.onclose = () => {
-    $("st-ws").textContent = "WebSocket：断开，重连中…";
-    $("st-ws").className = "err";
-    setTimeout(() => { if (document.visibilityState !== "hidden") connectWS(); }, 3000);
-  };
-  ws.onerror = () => ws.close();
-}
+  },
+});
+function connectWS() { marketConnection.connect(); }
 
 /* ---------------- 合约切换 ---------------- */
 /**
@@ -625,9 +609,7 @@ async function switchSymbol(symbol) {
   renderQuoteBar();
   renderDepth();
   renderDecision();
-  if (state.ws && state.ws.readyState === 1) {
-    state.ws.send(JSON.stringify({ action: "subscribe", symbols: [symbol] }));
-  }
+  marketConnection.subscribe();
   const item = state.instruments.find((i) => i.symbol === symbol);
   if (item) $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
   loadKline();

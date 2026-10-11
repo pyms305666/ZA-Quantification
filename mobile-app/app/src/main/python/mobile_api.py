@@ -26,6 +26,7 @@ from market.decision_profiles import parse_request, requests_for, profile_catalo
 from tq.client import TqClientError
 from tq.instruments import normalize_symbol
 from services import build_services
+from ws_transport import QuoteIngress, TransportClosed, WebSocketHub
 
 
 def run_blocking(func, *args, **kwargs):
@@ -60,8 +61,8 @@ class MobileHub:
         self.instruments = self.services.instruments
         self.subscriptions = self.services.subscriptions
         self.cache = self.services.cache
-        self.connections: list[WebSocket] = []
-        self.queue: Optional[asyncio.Queue] = None     # uvicorn loop 内创建；行情线程经 call_soon_threadsafe 投递
+        self.connections = WebSocketHub()
+        self.ingress: Optional[QuoteIngress] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.broadcast_task: Optional[asyncio.Task] = None
 
@@ -71,11 +72,9 @@ class MobileHub:
         self.services.last_quote_unix = time.time()
         self.services.quote_recv_total += 1
         self.services.cache.set(quote)
-        loop = self.loop
-        if loop is not None:
-            # 关闭请求与行情回调可能交错；已关闭的 loop 不再接收推送。
-            with suppress(RuntimeError):
-                loop.call_soon_threadsafe(self._enqueue, quote)
+        ingress = self.ingress
+        if self.loop is not None and ingress is not None:
+            ingress.submit(quote)
 
     # ---- 异步包装：阻塞调用放线程池 ----
     async def subscribe_async(self, symbols: list[str]) -> dict:
@@ -113,17 +112,17 @@ class MobileHub:
         if self.broadcast_task is not None and not self.broadcast_task.done():
             return
         self.loop = asyncio.get_running_loop()
-        # asyncio.Queue 必须在 uvicorn loop 内创建，行情线程只经
-        # call_soon_threadsafe(_enqueue) 投递——不跨线程直接操作就没有 loop 绑定问题，
-        # 且是即时唤醒（旧实现同步队列 + 0.2s 轮询，每笔行情最多平白叠 200ms 延迟，
-        # 直接顶满 200ms P95 目标的上限）。
-        self.queue = asyncio.Queue()
+        if self.connections._closing:
+            self.connections.reopen()
+        self.ingress = QuoteIngress(self.loop, self._broadcast_batch)
         self.services.start()
-        self.broadcast_task = self.loop.create_task(self._broadcast_loop())
+        self.broadcast_task = self.loop.create_task(self.ingress.wait_closed())
 
     async def on_shutdown(self) -> None:
         """停止推送、关闭移动 WS，并等待共享服务完成受管关闭。"""
         self.loop = None
+        if self.ingress is not None:
+            self.ingress.close()
         task = self.broadcast_task
         self.broadcast_task = None
         try:
@@ -132,40 +131,15 @@ class MobileHub:
                 with suppress(asyncio.CancelledError, Exception):
                     await task
 
-            connections = list(self.connections)
-            self.connections.clear()
-
-            async def close_connection(ws) -> None:
-                with suppress(Exception):
-                    await asyncio.wait_for(ws.close(), timeout=1.0)
-
-            await asyncio.gather(*(close_connection(ws) for ws in connections))
+            await self.connections.close_all()
         finally:
-            self.queue = None
-            self.connections.clear()
+            self.ingress = None
             await self.services.close()
 
-    def _enqueue(self, quote) -> None:
-        # 由 call_soon_threadsafe 调入 uvicorn loop 线程执行：put_nowait 即时唤醒广播协程
-        if self.queue is not None:
-            self.queue.put_nowait(quote)
-
-    async def _broadcast_loop(self) -> None:
-        """WS 广播泵（uvicorn loop 常驻任务）：逐条推队列里的行情快照，
-        推送失败的连接从列表摘除。"""
-        while True:
-            quote = await self.queue.get()
-            payload = {"type": "quote", "symbol": quote.symbol, "data": quote.to_dict(),
-                       "ts": time.time()}   # 服务端发送时刻，前端算端到端延迟（P0-200ms 埋点）
-            dead = []
-            for ws in list(self.connections):
-                try:
-                    await ws.send_json(payload)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                if ws in self.connections:
-                    self.connections.remove(ws)
+    def _broadcast_batch(self, quotes: list) -> None:
+        for quote in quotes:
+            self.connections.broadcast({"type": "quote", "symbol": quote.symbol,
+                                        "data": quote.to_dict()})
 
 
 def create_mobile_app(hub: MobileHub) -> Starlette:
@@ -229,7 +203,7 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
                       # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
                       "last_quote_unix": hub.services.last_quote_unix,
                       "quote_recv_total": hub.services.quote_recv_total,
-                      "ws_clients": len(hub.connections),
+                      "ws_clients": hub.connections.client_count(),
                       "route": hub.route})
 
     async def instruments(request):
@@ -328,34 +302,33 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
     async def ws_market(websocket: WebSocket):
         """行情 WS 端点：subscribe/unsubscribe/ping 三种动作，断开自动摘除。"""
-        await websocket.accept()
-        await websocket.send_json({"type": "hello", "connected": hub.client.connected,
-                                   "subscribed": hub.subscriptions.subscribed()})
-        hub.connections.append(websocket)
         try:
+            await hub.connections.connect(websocket, {"type": "hello", "connected": hub.client.connected,
+                                          "subscribed": hub.subscriptions.subscribed()})
             while True:
                 message = json.loads(await websocket.receive_text())
                 action = str(message.get("action", "")).lower()
                 symbols = [str(s) for s in (message.get("symbols") or [])]
                 if action == "subscribe":
                     result = await hub.subscribe_async(symbols)
-                    await websocket.send_json({"type": "subscribed", **result})
-                    for symbol in result["subscribed"]:
+                    await hub.connections.send_control(websocket, {"type": "subscribed", **result})
+                    for symbol in dict.fromkeys(result["subscribed"] + result.get("skipped", [])):
                         cached = hub.cache.get(symbol)
                         if cached is not None:
-                            await websocket.send_json({"type": "quote_snapshot",
+                            await hub.connections.send_control(websocket, {"type": "quote_snapshot",
                                                        "symbol": symbol,
                                                        "data": cached.to_dict()})
                 elif action == "unsubscribe":
                     result = await hub.unsubscribe_async(symbols)
-                    await websocket.send_json({"type": "unsubscribed", **result})
+                    await hub.connections.send_control(websocket, {"type": "unsubscribed", **result})
                 elif action == "ping":
-                    await websocket.send_json({"type": "pong"})
-        except WebSocketDisconnect:
+                    await hub.connections.send_control(websocket, {"type": "pong"})
+                else:
+                    await hub.connections.send_control(websocket, {"type": "error", "message": f"未知 action：{action}"})
+        except (WebSocketDisconnect, TransportClosed):
             pass
         finally:
-            if websocket in hub.connections:
-                hub.connections.remove(websocket)
+            await hub.connections.disconnect(websocket)
 
     async def index(request):
         if hub.static_dir and (hub.static_dir / "index.html").exists():
