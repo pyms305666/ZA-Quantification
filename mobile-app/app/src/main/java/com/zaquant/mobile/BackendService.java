@@ -93,8 +93,16 @@ public class BackendService extends Service {
 
     @Override
     public void onDestroy() {
-        releaseWakeLock();
-        super.onDestroy();
+        try {
+            if (Python.isStarted()) {
+                Python.getInstance().getModule("backend_main").callAttr("request_stop");
+            }
+        } catch (RuntimeException error) {
+            android.util.Log.w("ZAQuantBackend", "Backend stop request failed", error);
+        } finally {
+            releaseWakeLock();
+            super.onDestroy();
+        }
     }
 
     /** 创建低优先级通知渠道（Android 8+ 必须；低优先级=不发声不震动，仅常驻）。 */

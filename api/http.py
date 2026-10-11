@@ -278,7 +278,7 @@ def _lifespan(services: Services):
     async def lifespan(app: FastAPI) -> None:
         services.loop = asyncio.get_running_loop()
         broadcast_task = asyncio.create_task(_broadcast_loop(services))
-        services.client.start()
+        services.start()
         idle_watchdog = None
         threshold = services.auto_exit_idle_seconds
         if threshold:
@@ -300,6 +300,8 @@ def _lifespan(services: Services):
                 await broadcast_task
             if idle_watchdog is not None:
                 idle_watchdog.cancel()
-            services.client.close()
+                with suppress(asyncio.CancelledError):
+                    await idle_watchdog
+            await services.close()
 
     return lifespan

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
 from tq.client import SymbolNotFoundError, TqClientError
@@ -200,8 +202,24 @@ class SubscriptionManagerTests(unittest.TestCase):
         self.assertEqual(manager.subscribed(), [])
         # 模拟连接就绪
         client.connected = True
+        delivered = threading.Event()
+        original_run = client.run_command
+
+        def run(command, *args, **kwargs):
+            result = original_run(command, *args, **kwargs)
+            if command == "subscribe":
+                delivered.set()
+            return result
+
+        client.run_command = run
+        manager.start()
+        self.addCleanup(manager.close)
         manager.on_connected()
-        # pending 被重放，合约进入订阅表
+        self.assertTrue(delivered.wait(1.0))
+        # 发送完成之后还有状态提交，按状态等待而非假设回调同步执行。
+        deadline = time.monotonic() + 1.0
+        while not manager.subscribed() and time.monotonic() < deadline:
+            threading.Event().wait(0.005)
         self.assertEqual(manager.subscribed(), ["SHFE.rb2610"])
 
     def test_reconnect_replays_existing_subscriptions(self):

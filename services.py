@@ -33,15 +33,34 @@ class Services:
     last_quote_unix: float = 0.0    # 最近一笔行情到达时刻（Unix 秒，线程内写、接口线程读，GIL 安全）
     quote_recv_total: int = 0       # 行情到达累计笔数
 
+    def start(self) -> None:
+        """先启动恢复 worker，避免首个连接通知发生在 worker 启动之前。"""
+        self.subscriptions.start()
+        self.client.start()
+
+    async def close(self) -> None:
+        """停止恢复、关闭连接与行情线程；阻塞 join 不占 Web 事件循环。"""
+        self.loop = None
+        self.subscriptions.request_stop()
+        close_all = getattr(self.connections, "close_all", None)
+        if close_all is not None:
+            await close_all()
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, self.client.close)
+        finally:
+            await loop.run_in_executor(None, self.subscriptions.close)
+
     def on_quote_change(self, quote: object) -> None:
         """在 tqsdk 事件循环线程内被调用：只写缓存并投递到异步队列。"""
         self.last_quote_unix = time.time()
         self.quote_recv_total += 1
         self.cache.set(quote)  # type: ignore[arg-type]
-        if self.loop is not None:
+        loop = self.loop
+        if loop is not None:
             if self.broadcast_queue is None:
                 self.broadcast_queue = asyncio.Queue()
-            self.loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, quote)
+            loop.call_soon_threadsafe(self.broadcast_queue.put_nowait, quote)
 
 
 def build_services(config: Config,

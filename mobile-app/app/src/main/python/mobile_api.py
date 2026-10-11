@@ -11,7 +11,7 @@ import json
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -63,6 +63,7 @@ class MobileHub:
         self.connections: list[WebSocket] = []
         self.queue: Optional[asyncio.Queue] = None     # uvicorn loop 内创建；行情线程经 call_soon_threadsafe 投递
         self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.broadcast_task: Optional[asyncio.Task] = None
 
     # ---- 行情线程回调（接管 Services.on_quote_change：统计埋点 + 缓存 + 广播投递） ----
     def on_quote_change(self, quote) -> None:
@@ -70,8 +71,11 @@ class MobileHub:
         self.services.last_quote_unix = time.time()
         self.services.quote_recv_total += 1
         self.services.cache.set(quote)
-        if self.loop is not None:
-            self.loop.call_soon_threadsafe(self._enqueue, quote)
+        loop = self.loop
+        if loop is not None:
+            # 关闭请求与行情回调可能交错；已关闭的 loop 不再接收推送。
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._enqueue, quote)
 
     # ---- 异步包装：阻塞调用放线程池 ----
     async def subscribe_async(self, symbols: list[str]) -> dict:
@@ -106,14 +110,40 @@ class MobileHub:
     # ---- WebSocket 广播 ----
     def on_startup(self) -> None:
         """uvicorn lifespan 启动钩子：记录事件循环、启动行情线程与广播泵。"""
+        if self.broadcast_task is not None and not self.broadcast_task.done():
+            return
         self.loop = asyncio.get_running_loop()
         # asyncio.Queue 必须在 uvicorn loop 内创建，行情线程只经
         # call_soon_threadsafe(_enqueue) 投递——不跨线程直接操作就没有 loop 绑定问题，
         # 且是即时唤醒（旧实现同步队列 + 0.2s 轮询，每笔行情最多平白叠 200ms 延迟，
         # 直接顶满 200ms P95 目标的上限）。
         self.queue = asyncio.Queue()
-        self.client.start()
-        self.loop.create_task(self._broadcast_loop())
+        self.services.start()
+        self.broadcast_task = self.loop.create_task(self._broadcast_loop())
+
+    async def on_shutdown(self) -> None:
+        """停止推送、关闭移动 WS，并等待共享服务完成受管关闭。"""
+        self.loop = None
+        task = self.broadcast_task
+        self.broadcast_task = None
+        try:
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+
+            connections = list(self.connections)
+            self.connections.clear()
+
+            async def close_connection(ws) -> None:
+                with suppress(Exception):
+                    await asyncio.wait_for(ws.close(), timeout=1.0)
+
+            await asyncio.gather(*(close_connection(ws) for ws in connections))
+        finally:
+            self.queue = None
+            self.connections.clear()
+            await self.services.close()
 
     def _enqueue(self, quote) -> None:
         # 由 call_soon_threadsafe 调入 uvicorn loop 线程执行：put_nowait 即时唤醒广播协程
@@ -338,8 +368,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
     @asynccontextmanager
     async def lifespan(app):
-        hub.on_startup()
-        yield
+        try:
+            hub.on_startup()
+            yield
+        finally:
+            await hub.on_shutdown()
 
     routes = [
         Route("/", index),
@@ -364,14 +397,23 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
 
 
 def run_mobile_server(host: str = "127.0.0.1", port: int = 8000,
-                      static_dir: Optional[Path] = None) -> None:
+                      static_dir: Optional[Path] = None,
+                      on_server: Optional[Callable[[Any], None]] = None,
+                      should_exit: Optional[Callable[[], bool]] = None) -> None:
     """Android 入口：加载配置 → 装配 MobileHub → 启动 uvicorn（阻塞）。
 
-    由 BackendService 的后台线程调用（Chaquopy 从 Java 侧导入本模块触发）。
+    由 BackendService 显式启动的后台线程调用。
     静态目录即 APK 内打包的 mobile static（前端同源加载，无跨域）。
     """
     import uvicorn
     config = load_config()
     hub = MobileHub(config, static_dir)
     app = create_mobile_app(hub)
-    uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)
+    server = uvicorn.Server(uvicorn.Config(
+        app, host=host, port=port, log_level="warning", access_log=False))
+    if on_server is not None:
+        on_server(server)
+    if should_exit is not None and should_exit():
+        server.should_exit = True
+    if not server.should_exit:
+        server.run()

@@ -65,6 +65,21 @@ class ConnectionManager:
         """当前 WebSocket 客户端数量（status 延迟统计用）。"""
         return len(self._connections)
 
+    async def close_all(self) -> None:
+        """关停时主动结束客户端连接，使接收中的 WS 路由能够退出。"""
+        async with self._lock:
+            targets = list(self._connections)
+            self._connections.clear()
+            self._empty_since = time.monotonic()
+
+        async def close(websocket: WebSocket) -> None:
+            try:
+                await asyncio.wait_for(websocket.close(code=1001), timeout=1.0)
+            except Exception:
+                pass
+
+        await asyncio.gather(*(close(websocket) for websocket in targets))
+
     async def broadcast_quote(self, quote: MarketQuote) -> None:
         """向所有在线客户端推送一条行情快照；推送失败的连接立即摘除。
 

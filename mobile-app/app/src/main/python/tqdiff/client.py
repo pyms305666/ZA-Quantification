@@ -20,7 +20,7 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any, Callable, Optional
 from types import SimpleNamespace
 
@@ -87,6 +87,15 @@ class DiffClient:
         self._password = password
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._lifecycle_lock = threading.RLock()
+        self._stopping = False
+        self._session_task: Optional[asyncio.Task] = None
+        self._command_tasks: set = set()
+        self._background_tasks: set = set()
+        self._subscription_sync_task: Optional[asyncio.Task] = None
+        self._subscription_send_lock: Optional[asyncio.Lock] = None
+        self._subscription_version = 0
+        self._executor: Optional[ThreadPoolExecutor] = None
         self._lock = threading.Lock()
         self._connected = False
         self._error: Optional[str] = None
@@ -208,11 +217,13 @@ class DiffClient:
         线程内跑独立 asyncio 事件循环并进入"会话-断开-重连"主循环，
         直到 close() 被调用。daemon=True：主进程退出无需显式收尾。
         """
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run_loop, name="diff-loop", daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop.clear()
+            self._stopping = False
+            self._thread = threading.Thread(target=self._run_loop, name="diff-loop", daemon=True)
+            self._thread.start()
 
     def close(self, timeout: float = 3.0) -> None:
         """停止行情线程并释放事件循环。
@@ -220,13 +231,42 @@ class DiffClient:
         置位停止信号 → 唤醒阻塞中的事件循环 → 等待线程退出（至多 timeout 秒）。
         线程未在超时内退出也不强杀（daemon 线程随进程消亡）。
         """
-        self._stop.set()
-        loop = self._loop
-        if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(lambda: None)
-        if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=timeout)
-        self._thread = None
+        with self._lifecycle_lock:
+            self._stopping = True
+            self._stop.set()
+            self._set_connected(False)
+            loop = self._loop
+            thread = self._thread
+            if loop is not None and loop.is_running():
+                try:
+                    loop.call_soon_threadsafe(self._cancel_running_tasks)
+                except RuntimeError:
+                    pass  # loop 已在关闭；线程 finally 负责收尾
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=timeout)
+        with self._lifecycle_lock:
+            if thread is not None and not thread.is_alive() and self._thread is thread:
+                self._thread = None
+            elif thread is not None and thread.is_alive() and thread is not threading.current_thread():
+                logger.warning("行情线程未在 %.1fs 内退出，保留线程引用", timeout)
+
+    def _cancel_running_tasks(self) -> None:
+        for task in list(self._command_tasks | self._background_tasks):
+            task.cancel()
+        if self._file_task is not None:
+            self._file_task.cancel()
+        if self._session_task is not None:
+            self._session_task.cancel()
+
+    async def _tracked_command(self, command: str, args: tuple) -> Any:
+        task = asyncio.current_task()
+        self._command_tasks.add(task)
+        try:
+            if self._stop.is_set():
+                raise TqClientError("行情客户端已关闭")
+            return await self._execute(command, args)
+        finally:
+            self._command_tasks.discard(task)
 
     def run_command(self, command: str, *args: Any, timeout: float = 8.0) -> Any:
         """提交一条命令协程到行情事件循环并同步等待结果（跨线程唯一通用入口）。
@@ -245,16 +285,29 @@ class DiffClient:
         Raises:
             TqClientError: 连接未就绪、命令超时或命令执行失败（统一错误类型）。
         """
-        loop = self._loop
-        if loop is None or not loop.is_running() or not self.connected:
-            raise TqClientError("DIFF 行情连接初始化中，请稍候重试")
-        coro = self._execute(command, args)
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        with self._lifecycle_lock:
+            loop = self._loop
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None
+            if current_loop is not None and current_loop is loop:
+                raise TqClientError("不能在行情事件循环线程同步等待命令")
+            if self._stopping or self._stop.is_set():
+                raise TqClientError("行情客户端已关闭")
+            if loop is None or not loop.is_running() or not self.connected:
+                raise TqClientError("DIFF 行情连接初始化中，请稍候重试")
+            coro = self._tracked_command(command, args)
+            try:
+                future = asyncio.run_coroutine_threadsafe(coro, loop)
+            except RuntimeError as error:
+                coro.close()
+                raise TqClientError("行情事件循环已关闭") from error
         try:
             return future.result(timeout=timeout)
         except TqClientError:
             raise
-        except TimeoutError:
+        except FutureTimeoutError:
             future.cancel()
             raise TqClientError(f"命令超时（{timeout:g}s）：{command}") from None
         except Exception as error:
@@ -267,11 +320,41 @@ class DiffClient:
         订阅不能因此阻塞 HTTP 请求；状态先写入重连可重放的集合，行情循环恢复
         调度后再发送 subscribe_quote。
         """
-        with self._data_lock:
-            self._subscribed.add(symbol)
-        loop = self._loop
-        if loop is not None and loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._resend_subscribe(), loop)
+        with self._lifecycle_lock:
+            if self._stopping or self._stop.is_set():
+                raise TqClientError("行情客户端已关闭")
+            with self._data_lock:
+                self._subscribed.add(symbol)
+                self._subscription_version += 1
+            loop = self._loop
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(self._ensure_subscription_sync)
+
+    def _ensure_subscription_sync(self) -> None:
+        if self._stop.is_set():
+            return
+        if self._subscription_sync_task is None or self._subscription_sync_task.done():
+            self._subscription_sync_task = asyncio.create_task(self._sync_queued_subscriptions())
+            self._background_tasks.add(self._subscription_sync_task)
+            self._subscription_sync_task.add_done_callback(self._background_tasks.discard)
+
+    async def _sync_queued_subscriptions(self) -> None:
+        attempt = 0
+        while not self._stop.is_set() and self.connected:
+            with self._data_lock:
+                version = self._subscription_version
+            try:
+                await self._resend_subscribe()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                self._status(f"订阅同步失败，稍后重试：{error}")
+                await asyncio.sleep(min(2 ** attempt, 30.0))
+                attempt = min(attempt + 1, 5)
+                continue
+            with self._data_lock:
+                if version == self._subscription_version:
+                    return
 
     def set_credentials(self, account: str, password: str) -> None:
         """运行中设置天勤凭据（登录界面保存后调用）。
@@ -305,11 +388,18 @@ class DiffClient:
         """
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+        self._executor = ThreadPoolExecutor(thread_name_prefix="diff-http")
+        self._loop.set_default_executor(self._executor)
+        self._subscription_send_lock = None
         try:
             while not self._stop.is_set():
                 try:
-                    self._loop.run_until_complete(self._session())
+                    self._session_task = self._loop.create_task(self._session())
+                    self._loop.run_until_complete(self._session_task)
                     self._status("连接已断开")
+                except asyncio.CancelledError:
+                    if not self._stop.is_set():
+                        raise
                 except Exception as error:
                     self._set_error(str(error))
                     self._status(f"连接异常，3 秒后重连：{error}")
@@ -318,7 +408,33 @@ class DiffClient:
                     break
         finally:
             self._set_connected(False)
-            self._loop.close()
+            try:
+                self._loop.run_until_complete(self._shutdown_loop())
+            finally:
+                # requests 不能由 Future.cancel 强行中止。线程内等待既有 HTTP 工作
+                # 自然结束，close 超时会保留本线程，阻止重启产生第二批 executor。
+                self._executor.shutdown(wait=True)
+                self._executor = None
+                self._loop.close()
+
+    async def _shutdown_loop(self) -> None:
+        self._cancel_running_tasks()
+        current = asyncio.current_task()
+        pending = [task for task in asyncio.all_tasks() if task is not current and not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if self._ws is not None:
+            try:
+                await asyncio.wait_for(self._ws.close(), timeout=1.0)
+            except Exception:
+                pass
+        self._ws = None
+        self._session_task = None
+        self._file_task = None
+        self._subscription_sync_task = None
+        await asyncio.get_running_loop().shutdown_asyncgens()
 
     async def _session(self) -> None:
         """一次完整会话：认证 → WebSocket → （后台）合约文件。
@@ -643,12 +759,14 @@ class DiffClient:
         """把当前订阅表整体重发给服务器（subscribe_quote）。
 
         服务器端订阅是全量语义：每次重发完整 ins_list（逗号分隔）即可完成
-        增/删订阅与断线重放，无需本地记录与服务器侧的差量。空表不发。
+        增/删订阅与断线重放。空表也必须发送，否则最后一只合约无法退订。
         """
-        with self._data_lock:
-            ins_list = ",".join(sorted(self._subscribed))
-        pack = {"aid": "subscribe_quote", "ins_list": ins_list}
-        if ins_list:
+        if self._subscription_send_lock is None:
+            self._subscription_send_lock = asyncio.Lock()
+        async with self._subscription_send_lock:
+            with self._data_lock:
+                ins_list = ",".join(sorted(self._subscribed))
+            pack = {"aid": "subscribe_quote", "ins_list": ins_list}
             await self._send(pack)
 
     async def _resend_charts(self) -> None:
@@ -716,7 +834,9 @@ class DiffClient:
         if canonical not in self._subscribed:
             with self._data_lock:
                 self._subscribed.add(canonical)
-            await self._resend_subscribe()
+                self._subscription_version += 1
+        # 上一次可能在 add 之后超时取消；重试也要重新发送，不能以本地存在当作确认。
+        await self._resend_subscribe()
         # 休市时段服务器不再推 diffs：主动重放当前快照，保证页面订阅后立刻有行情
         with self._data_lock:
             snapshot = dict(self._quotes.get(canonical) or {})
@@ -728,6 +848,7 @@ class DiffClient:
         """退订一只合约：从订阅表移除并清掉其报价快照与等待事件，重发订阅表。"""
         with self._data_lock:
             self._subscribed.discard(symbol)
+            self._subscription_version += 1
             self._quotes.pop(symbol, None)
             self._quote_events.pop(symbol, None)
         await self._resend_subscribe()

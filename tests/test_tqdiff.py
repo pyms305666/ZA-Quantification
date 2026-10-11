@@ -191,11 +191,18 @@ class SubscriptionLatencyTests(unittest.TestCase):
     def test_subscribe_returns_without_waiting_for_first_quote(self):
         client = DiffClient("acc", "pwd")
         client._subscribed.add("SHFE.au2612")
+        packs = []
+
+        async def send(pack):
+            packs.append(pack)
+
+        client._send = send
 
         async def subscribe():
             return await asyncio.wait_for(client._subscribe("SHFE.au2612"), timeout=0.1)
 
         self.assertEqual(asyncio.run(subscribe()), "SHFE.au2612")
+        self.assertEqual(packs, [{"aid": "subscribe_quote", "ins_list": "SHFE.au2612"}])
 
     def test_resend_subscribe_releases_data_lock_before_sending(self):
         client = DiffClient("acc", "pwd")
