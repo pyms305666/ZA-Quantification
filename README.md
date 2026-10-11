@@ -2,9 +2,9 @@
 
 > 国内期货行情读取、图表展示与技术分析评估工具。当前源码版本见 [`VERSION`](VERSION)；本文描述仓库当前代码，不替代 `docs/验证记录/` 中带日期的历史验收记录。
 
-V1.2.1 提供 Windows C 直连版安装包/独立程序和 Android 正式签名 APK，下载见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.1)，测试与打包记录见 [V1.2.1 发布验收](docs/V1.2.1发布验收-2026-09-26.md)。
+V1.2.2 提供 Windows C 直连版安装包/独立程序和 Android 正式签名 APK（`versionCode=5`），下载见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.2)，测试与打包记录见 [V1.2.2 发布验收](docs/V1.2.2发布验收-2026-10-11.md)。本版未执行安装或真机测试。
 
-本隔离分支另包含 V1.2.1 技术债修复，尚未打包或发布；源码快照、冻结边界、依赖锁及离线验收见 [技术债交付索引](docs/technical-debt/README.md)。当前验证中的模型源码保持冻结，只同步本轮实际修改的非冻结共享文件。
+V1.2.2 包含基于 V1.2.1 的技术债修复；源码快照、冻结边界、依赖锁及分步离线验收见 [技术债交付索引](docs/technical-debt/README.md)。当前验证中的模型源码保持冻结，只同步本轮实际修改的非冻结共享文件。
 
 项目只读取行情、计算指标并生成参考评估，**不提供下单或自动交易能力**。桌面 Web、Electron 和 Android 端均通过本机运行的 Python 行情后端工作；Android 在设备内嵌入 Python，不依赖本项目自建云服务器。
 

@@ -21,8 +21,8 @@
   },
   "static/index.html": {
     "reason": "桌面与手机页面结构不同。",
-    "desktop_sha256": "4825f832db00c2879778860835fec3f516c79e73400829ff0b4e64a70848a0c3",
-    "android_sha256": "51bb489a998025925d1dbaa40465b34584406295ccbe0846f6885b5840115223"
+    "desktop_sha256": "21177b93417b3307ea411a60644387d62a0c61d238fb0812c67e3f69848a3dc5",
+    "android_sha256": "6f1f7d58d2c0b745d81f16f0eed352f68fa69a09868a41fb528b08b5f2b0d001"
   },
   "static/style.css": {
     "reason": "桌面与手机布局适配不同。",

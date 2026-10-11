@@ -34,21 +34,37 @@ def signing_config(path):
     return fingerprint
 
 
+def release_identity():
+    version = (ROOT / 'VERSION').read_text(encoding='utf-8').strip()
+    gradle = (ROOT / 'mobile-app/app/build.gradle').read_text(encoding='utf-8')
+    code = re.search(r'\bversionCode\s+([1-9][0-9]*)\b', gradle)
+    name = re.search(r'\bversionName\s+"([^"]+)"', gradle)
+    phone = (ROOT / 'mobile-app/app/src/main/python/VERSION').read_text(encoding='utf-8').strip()
+    if not code or not name or name[1] != version or phone != version:
+        raise ValueError('Source release versions differ')
+    return version, code[1]
+
+
 def validate_artifact(path, expected_hash, fingerprint, apksigner, aapt, run=subprocess.check_output):
     if not re.fullmatch('[0-9a-fA-F]{64}', expected_hash or ''):
         raise ValueError('Expected artifact SHA-256 required')
     actual = hashlib.sha256(path.read_bytes()).hexdigest()
     if actual != expected_hash.lower():
         raise ValueError('Artifact SHA-256 mismatch')
-    signature = run([str(apksigner),'verify','--verbose','--print-certs',str(path)], text=True, encoding='utf-8', stderr=subprocess.STDOUT)
+    signature = run([str(apksigner),'verify','--verbose','--print-certs',str(path)], text=True, encoding='utf-8', errors='replace', stderr=subprocess.STDOUT)
     certificates = re.findall(r'certificate SHA-256 digest:\s*([0-9a-fA-F:]+)', signature)
     if not certificates or any(value.replace(':','').lower() != fingerprint for value in certificates):
         raise ValueError('Artifact production signature mismatch')
     if 'android debug' in signature.lower():
         raise ValueError('Debug signature forbidden for formal release')
-    badging = run([str(aapt),'dump','badging',str(path)], text=True, encoding='utf-8', stderr=subprocess.STDOUT)
-    version = (ROOT / 'VERSION').read_text(encoding='utf-8').strip()
-    if not re.search(r"package: name='com\.zaquant\.mobile' versionCode='4' versionName='" + re.escape(version) + "'", badging):
+    # Windows aapt 不接受含中文的绝对路径，使用工作目录和文件名；
+    # 本地化标签可能使用系统编码，门禁只解析 ASCII 身份字段。
+    aapt_path = Path(aapt)
+    aapt_command = str(aapt_path.resolve()) if aapt_path.is_file() else str(aapt)
+    badging = run([aapt_command,'dump','badging',path.name], cwd=str(path.resolve().parent),
+                  text=True, encoding='utf-8', errors='replace', stderr=subprocess.STDOUT)
+    version, code = release_identity()
+    if not re.search(r"package: name='com\.zaquant\.mobile' versionCode='" + code + "' versionName='" + re.escape(version) + "'", badging):
         raise ValueError('Artifact package/version mismatch')
     with zipfile.ZipFile(str(path)) as archive:
         abis = {name.split('/')[1] for name in archive.namelist() if name.startswith('lib/') and name.endswith('.so')}

@@ -34,7 +34,7 @@ cd mobile-app
 
 ## release 签名（V1.1.3 起）
 
-当前正式版本 V1.2.1（`versionCode=4`），发布附件为 `ZAQuant-Mobile-v1.2.1.apk`。同签名可覆盖升级 V1.1.3 并保留 App 数据。完整记录见 [V1.2.1 发布验收](../docs/V1.2.1发布验收-2026-09-26.md)。
+当前正式版本 V1.2.2（`versionCode=5`），发布附件为 `ZAQuant-Mobile-v1.2.2.apk`。使用与 V1.2.1 相同的生产证书，具备覆盖升级条件；本版未执行真机覆盖安装或数据保留验收。完整记录见 [V1.2.2 发布验收](../docs/V1.2.2发布验收-2026-10-11.md)。
 
 - 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
   （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。
@@ -47,7 +47,7 @@ cd mobile-app
   此后所有升级必须用同一 keystore 签名。
 - minify 保持 `false`：Chaquopy 的 Python/Java 桥接在混淆下风险高，无混淆需求。
 
-正式构建前通过依赖、漂移与冻结检查，构建后还需核验签名、应用 ID、版本、ABI 和外部预期 SHA-256，命令见 [发布门禁](../docs/technical-debt/README.md#正式发布门禁)。本轮技术债修复未执行打包、签名或设备验收。
+正式构建前通过依赖、漂移与冻结检查，构建后还需核验签名、应用 ID、版本、ABI 和外部预期 SHA-256，命令见 [发布门禁](../docs/technical-debt/README.md#正式发布门禁)。技术债修复阶段没有打包；后续获授权构建的 V1.2.2 已通过实际 APK 核验，设备验收仍待完成。
 
 ## 已知构建警告（已核实、可接受）
 
