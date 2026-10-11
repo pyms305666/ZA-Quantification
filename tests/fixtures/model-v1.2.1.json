@@ -1,0 +1,339 @@
+{
+  "ultra": {
+    "requests": {
+      "60": 200,
+      "300": 200,
+      "900": 200
+    },
+    "result": {
+      "mode": "ultra",
+      "mode_label": "超短线",
+      "holding": "5–30 分钟，不隔夜",
+      "profile_version": 1,
+      "periods": [
+        "1分钟",
+        "5分钟",
+        "15分钟"
+      ],
+      "atr_period": "1分钟",
+      "min_score": 60,
+      "min_gap": 15,
+      "stop_atr": 1.5,
+      "target1_r": 1.5,
+      "target2_r": 3.0,
+      "evaluated_at": 1790578680000,
+      "quote_timestamp": 1790578680000,
+      "data_timestamp": 1790576880000,
+      "quote_fresh": true,
+      "session": {
+        "status": "scheduled",
+        "minutes_to_close": 2.0,
+        "close_time": "2026-09-28T15:00:00+08:00"
+      },
+      "expire_rest_days": 200,
+      "warnings": [
+        "计划持有5–30分钟且不隔夜；系统仅作提示，不会自动平仓。",
+        "距本时段收盘不足5分钟，继续展示技术方向，但剩余时间不足最低计划持有期。"
+      ],
+      "data_requirements": [
+        {
+          "period": "1分钟",
+          "required": 30,
+          "available": 150
+        },
+        {
+          "period": "5分钟",
+          "required": 60,
+          "available": 150
+        },
+        {
+          "period": "15分钟",
+          "required": 60,
+          "available": 150
+        }
+      ],
+      "pending": false,
+      "direction": "做多",
+      "direction_en": "LONG",
+      "score_long": 79.0,
+      "score_short": 16.0,
+      "score": 79.0,
+      "entry": 3300.0,
+      "stop": 3295.0,
+      "target1": 3308.0,
+      "target2": 3315.0,
+      "target_points": 15.0,
+      "risk_amount": 500.0,
+      "risk_percent": 1.0,
+      "risk_budget": 900.0,
+      "one_lot_risk": 50.0,
+      "contracts": 10,
+      "multiplier": 10,
+      "tick_size": 1.0,
+      "rationale": [
+        "15分钟 EMA20>EMA60 多头排列（+6）",
+        "15分钟收盘站上 EMA20（+6）",
+        "15分钟 MACD 金叉（+6）",
+        "15分钟均线+MACD 多头共振（+6）",
+        "5分钟 EMA20>EMA60 多头排列（+4）",
+        "5分钟 MACD 金叉（+4）",
+        "15分钟+5分钟 多头共振（+8）",
+        "1分钟突破20根高点 3037.97（+8）",
+        "RSI(14)=78.1 超买，追多风险（空+3）",
+        "KDJ 金叉（+6）",
+        "5分钟突破20根高点（+6）",
+        "持仓量增加 100 手，增仓上行（+6）",
+        "ATR=2.70（0.08%）波动温和（+3）"
+      ],
+      "data_ok": true
+    }
+  },
+  "short": {
+    "requests": {
+      "900": 200,
+      "3600": 200,
+      "86400": 200
+    },
+    "result": {
+      "mode": "short",
+      "mode_label": "短线",
+      "holding": "1–3 个交易日",
+      "profile_version": 1,
+      "periods": [
+        "15分钟",
+        "60分钟",
+        "日线"
+      ],
+      "atr_period": "15分钟",
+      "min_score": 60,
+      "min_gap": 15,
+      "stop_atr": 1.5,
+      "target1_r": 1.5,
+      "target2_r": 3.0,
+      "evaluated_at": 1790578680000,
+      "quote_timestamp": 1790578680000,
+      "data_timestamp": 1790265600000,
+      "quote_fresh": true,
+      "session": {
+        "status": "scheduled",
+        "minutes_to_close": 2.0,
+        "close_time": "2026-09-28T15:00:00+08:00"
+      },
+      "expire_rest_days": 200,
+      "warnings": [],
+      "data_requirements": [
+        {
+          "period": "15分钟",
+          "required": 30,
+          "available": 150
+        },
+        {
+          "period": "60分钟",
+          "required": 60,
+          "available": 150
+        },
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 400
+        }
+      ],
+      "pending": false,
+      "direction": "做多",
+      "direction_en": "LONG",
+      "score_long": 75.0,
+      "score_short": 20.0,
+      "score": 75.0,
+      "entry": 3300.0,
+      "stop": 3293.0,
+      "target1": 3311.0,
+      "target2": 3321.0,
+      "target_points": 21.0,
+      "risk_amount": 700.0,
+      "risk_percent": 1.4,
+      "risk_budget": 900.0,
+      "one_lot_risk": 70.0,
+      "contracts": 10,
+      "multiplier": 10,
+      "tick_size": 1.0,
+      "rationale": [
+        "日线 EMA20>EMA60 多头排列（+6）",
+        "日线收盘站上 EMA20（+6）",
+        "日线 MACD 金叉（+6）",
+        "日线均线+MACD 多头共振（+6）",
+        "60分钟 EMA20>EMA60 多头排列（+4）",
+        "60分钟 MACD 死叉（+4）",
+        "日线+60分钟 多头共振（+8）",
+        "15分钟突破20根高点 3443.97（+8）",
+        "RSI(14)=100.0 超买，追多风险（空+3）",
+        "KDJ 金叉（+6）",
+        "60分钟突破20根高点（+6）",
+        "持仓量增加 100 手，增仓上行（+6）",
+        "ATR=4.04（0.12%）波动温和（+3）"
+      ],
+      "data_ok": true
+    }
+  },
+  "medium": {
+    "requests": {
+      "3600": 200,
+      "86400": 400
+    },
+    "result": {
+      "mode": "medium",
+      "mode_label": "中线",
+      "holding": "2–4 周",
+      "profile_version": 1,
+      "periods": [
+        "60分钟",
+        "日线",
+        "周线"
+      ],
+      "atr_period": "60分钟",
+      "min_score": 60,
+      "min_gap": 15,
+      "stop_atr": 1.5,
+      "target1_r": 1.5,
+      "target2_r": 3.0,
+      "evaluated_at": 1790578680000,
+      "quote_timestamp": 1790578680000,
+      "data_timestamp": 1789920000000,
+      "quote_fresh": true,
+      "session": {
+        "status": "scheduled",
+        "minutes_to_close": 2.0,
+        "close_time": "2026-09-28T15:00:00+08:00"
+      },
+      "expire_rest_days": 200,
+      "warnings": [],
+      "data_requirements": [
+        {
+          "period": "60分钟",
+          "required": 30,
+          "available": 150
+        },
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 400
+        },
+        {
+          "period": "周线",
+          "required": 35,
+          "available": 79
+        }
+      ],
+      "pending": false,
+      "direction": "做多",
+      "direction_en": "LONG",
+      "score_long": 73.0,
+      "score_short": 22.0,
+      "score": 73.0,
+      "entry": 3300.0,
+      "stop": 3283.0,
+      "target1": 3326.0,
+      "target2": 3351.0,
+      "target_points": 51.0,
+      "risk_amount": 850.0,
+      "risk_percent": 1.7,
+      "risk_budget": 900.0,
+      "one_lot_risk": 170.0,
+      "contracts": 5,
+      "multiplier": 10,
+      "tick_size": 1.0,
+      "rationale": [
+        "周线 EMA10>EMA20 多头排列（+6）",
+        "周线收盘站上 EMA10（+6）",
+        "周线 MACD 金叉（+6）",
+        "周线均线+MACD 多头共振（+6）",
+        "日线 EMA20>EMA60 多头排列（+4）",
+        "日线 MACD 金叉（+4）",
+        "周线+日线 多头共振（+8）",
+        "60分钟突破20根高点 4748.97（+8）",
+        "RSI(14)=100.0 超买，追多风险（空+3）",
+        "KDJ 死叉（+6）",
+        "日线突破20根高点（+6）",
+        "持仓量增加 100 手，增仓上行（+6）",
+        "ATR=10.73（0.33%）波动温和（+3）"
+      ],
+      "data_ok": true
+    }
+  },
+  "long": {
+    "requests": {
+      "86400": 400
+    },
+    "result": {
+      "mode": "long",
+      "mode_label": "长线",
+      "holding": "1–3 个月",
+      "profile_version": 1,
+      "periods": [
+        "日线",
+        "周线"
+      ],
+      "atr_period": "日线",
+      "min_score": 60,
+      "min_gap": 15,
+      "stop_atr": 1.5,
+      "target1_r": 1.5,
+      "target2_r": 3.0,
+      "evaluated_at": 1790578680000,
+      "quote_timestamp": 1790578680000,
+      "data_timestamp": 1789920000000,
+      "quote_fresh": true,
+      "session": {
+        "status": "scheduled",
+        "minutes_to_close": 2.0,
+        "close_time": "2026-09-28T15:00:00+08:00"
+      },
+      "expire_rest_days": 200,
+      "warnings": [],
+      "data_requirements": [
+        {
+          "period": "日线",
+          "required": 60,
+          "available": 400
+        },
+        {
+          "period": "周线",
+          "required": 35,
+          "available": 79
+        }
+      ],
+      "pending": false,
+      "direction": "做多",
+      "direction_en": "LONG",
+      "score_long": 73.0,
+      "score_short": 16.0,
+      "score": 73.0,
+      "entry": 3300.0,
+      "stop": 3295.0,
+      "target1": 3308.0,
+      "target2": 3315.0,
+      "target_points": 15.0,
+      "risk_amount": 500.0,
+      "risk_percent": 1.0,
+      "risk_budget": 900.0,
+      "one_lot_risk": 50.0,
+      "contracts": 10,
+      "multiplier": 10,
+      "tick_size": 1.0,
+      "rationale": [
+        "周线 EMA10>EMA20 多头排列（+6）",
+        "周线收盘站上 EMA10（+6）",
+        "周线 MACD 金叉（+6）",
+        "周线均线+MACD 多头共振（+6）",
+        "日线 EMA20>EMA60 多头排列（+4）",
+        "日线 MACD 金叉（+4）",
+        "周线+日线 多头共振（+8）",
+        "日线突破20根高点 3796.62（+8）",
+        "RSI(14)=99.8 超买，追多风险（空+3）",
+        "KDJ 金叉（+6）",
+        "日线突破20根高点（+6）",
+        "ATR=3.18（0.10%）波动温和（+3）"
+      ],
+      "data_ok": true
+    }
+  }
+}

@@ -117,6 +117,10 @@ class KeyringFallbackTests(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        self.vault = _FakeVault()
+        patcher = mock.patch.object(config_module, "keyring", self.vault)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self._old = os.environ.get("TQ_GATEWAY_CREDENTIALS")
         os.environ["TQ_GATEWAY_CREDENTIALS"] = str(Path(self._tmp.name) / "credentials.json")
         self._old_off = os.environ.pop("TQ_GATEWAY_KEYRING", None)

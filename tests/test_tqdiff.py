@@ -311,7 +311,9 @@ class DownloadSymbolFileTests(unittest.TestCase):
     }).encode("utf-8")
 
     def setUp(self):
-        self._tmp = tempfile.mkdtemp(prefix="za-test-cache-")
+        temporary = tempfile.TemporaryDirectory(prefix="za-test-cache-")
+        self.addCleanup(temporary.cleanup)
+        self._tmp = temporary.name
         self._old_cache = os.environ.get("TQ_GATEWAY_CACHE")
         os.environ["TQ_GATEWAY_CACHE"] = self._tmp
         self.server = _FakeCatalogServer(self.PLAIN)
