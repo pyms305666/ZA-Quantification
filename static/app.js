@@ -4,6 +4,7 @@
 /* ---------------- 常量与状态 ---------------- */
 const COLORS = { up: "#ef5350", down: "#26a69a", amber: "#e0a93c", cyan: "#4db6e6", muted: "#8b96a3" };
 const PERIODS = { 60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线" };
+const CHART_HINT = "滚轮缩放 · 拖拽平移 · 双击复位 · 十字光标查看";
 
 const state = {
   symbol: "SHFE.rb2610",
@@ -12,6 +13,11 @@ const state = {
   quote: null,
   decision: null,
   decisionReq: 0,
+  selectionEpoch: 0,
+  klineReq: 0,
+  klineWork: null,
+  klineResetZoom: true,
+  decisionWork: null,
   ws: null,
   instruments: [],
   exchange: "",  // 交易所过滤
@@ -29,6 +35,12 @@ const state = {
  */
 async function fetchJSON(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
+  const external = options && options.signal;
+  const abort = () => controller.abort();
+  if (external) {
+    if (external.aborted) abort();
+    else external.addEventListener("abort", abort, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await fetch(url, { ...(options || {}), signal: controller.signal });
@@ -37,6 +49,7 @@ async function fetchJSON(url, options, timeoutMs = 30000) {
     return body;
   } finally {
     clearTimeout(timer);
+    if (external) external.removeEventListener("abort", abort);
   }
 }
 
@@ -250,23 +263,34 @@ function buildSeries() {
 }
 
 /**
- * 渲染图表：增量 setOption（只更新数据与缩放窗口，默认显示最近 120 根）。
+ * 渲染图表：首次/新选择显示最近 120 根；普通刷新保留用户缩放窗口。
  * 注意绝不传 yAxis——首次 option 已定义组件，增量传 null 会让 ECharts 5.5
  * 崩溃（见 init 内注释）。
  */
 function renderChart() {
-  if (!state.kline.length) return;
+  if (!state.kline.length) {
+    chart.setOption({
+      xAxis: [{ data: [] }, { data: [] }, { data: [] }],
+      series: (chart.getOption().series || []).map((_, i) =>
+        i === 0 ? { data: [], markLine: { data: [] } } : { data: [] }),
+    });
+    return;
+  }
   const { series, dates } = buildSeries();
-  const n = state.kline.length;
-  const lastBars = Math.min(120, n);
-  const start = Math.max(0, Math.round((1 - lastBars / n) * 100));
   // 注意：不要传 yAxis（首次 setOption 传 yAxis: [null,...] 会让 ECharts 5.5 初始化
   // yAxis 组件失败，导致 candlestick 初始化时 yAxisModel 为 undefined 而崩溃）。
-  chart.setOption({
+  const patch = {
     xAxis: [{ data: dates }, { data: dates }, { data: dates }],
-    dataZoom: [{ start, end: 100 }, { start, end: 100 }],
     series,
-  });
+  };
+  if (state.klineResetZoom) {
+    const n = state.kline.length;
+    const lastBars = Math.min(120, n);
+    const start = Math.max(0, Math.round((1 - lastBars / n) * 100));
+    patch.dataZoom = [{ start, end: 100 }, { start, end: 100 }];
+    state.klineResetZoom = false;
+  }
+  chart.setOption(patch);
 }
 
 /** 在主图上画最新价水平虚线（随每笔行情推送更新位置）。 */
@@ -291,7 +315,13 @@ chart.on("dblclick", () => {
  */
 function renderQuoteBar() {
   const q = state.quote;
-  if (!q) return;
+  if (!q) {
+    for (const id of ["qb-last", "qb-change", "m-open", "m-high", "m-low", "m-preclose", "m-volume", "m-oi", "m-oidelta"]) {
+      $(id).textContent = "--";
+      $(id).style.color = COLORS.muted;
+    }
+    return;
+  }
   const up = q.last >= q.pre_close;
   const color = q.pre_close && q.last !== q.pre_close ? (up ? COLORS.up : COLORS.down) : COLORS.muted;
   const change = q.last - (q.pre_close || q.last);
@@ -313,9 +343,9 @@ function renderQuoteBar() {
 /** 渲染五档盘口：卖五→卖一、最新价分隔条、买一→买五（红涨绿跌着色）。 */
 function renderDepth() {
   const q = state.quote;
-  if (!q) return;
   const body = $("depth-body");
   body.innerHTML = "";
+  if (!q) return;
   const ask = q.ask.slice().reverse(); // 卖五 → 卖一
   ask.forEach((level, index) => {
     const row = document.createElement("div");
@@ -436,33 +466,70 @@ async function saveAuth() {
 }
 
 /* ---------------- 数据拉取 ---------------- */
+function invalidateKline() {
+  state.klineReq++;
+  if (state.klineWork) state.klineWork.controller.abort();
+  state.klineWork = null;
+  state.kline = [];
+  state.klineResetZoom = true;
+  $("chart-hint").textContent = CHART_HINT;
+  renderChart();
+}
+
 /** 拉取 K 线（默认 400 根，15 秒轮询 + 切合约/切周期触发）并渲染图表。 */
 async function loadKline() {
-  try {
-    const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`, null, 45000);
-    state.kline = data.bars || [];
-    renderChart();
-    updateLastPriceLine();
-  } catch (e) {
-    $("chart-hint").textContent = `K线加载失败：${e.message}`;
-  }
+  const symbol = state.symbol, period = state.period, epoch = state.selectionEpoch;
+  const key = `${symbol}|${period}|400`;
+  if (state.klineWork && state.klineWork.key === key && state.klineWork.epoch === epoch) return state.klineWork.promise;
+  if (state.klineWork) state.klineWork.controller.abort();
+  const work = { key, epoch, reqId: ++state.klineReq, controller: new AbortController() };
+  state.klineWork = work;
+  const current = () => state.klineWork === work && work.reqId === state.klineReq &&
+    epoch === state.selectionEpoch && symbol === state.symbol && period === state.period;
+  work.promise = (async () => {
+    try {
+      const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(symbol)}?period=${period}&count=400`, { signal: work.controller.signal }, 45000);
+      if (!current()) return;
+      state.kline = data.bars || [];
+      $("chart-hint").textContent = CHART_HINT;
+      renderChart();
+      updateLastPriceLine();
+    } catch (e) {
+      if (!current() || e.name === "AbortError") return;
+      $("chart-hint").textContent = `K线加载失败：${e.message}`;
+    } finally {
+      if (current()) state.klineWork = null;
+    }
+  })();
+  return work.promise;
 }
 
 /** 拉取决策评估（6 秒轮询；失败在面板内联展示，不弹错误）。 */
 async function loadDecision() {
-  const reqId = ++state.decisionReq, symbol = state.symbol;
-  try {
-    const d = await DecisionControls.request(symbol);
-    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
-    state.decision = d;
-    DecisionControls.renderMeta(d);
-    renderDecision();
-  } catch (e) {
-    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
-    state.decision = null;
-    renderDecision();
-    DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
-  }
+  const symbol = state.symbol, epoch = state.selectionEpoch, revision = DecisionControls.revision;
+  if (state.decisionWork && state.decisionWork.symbol === symbol && state.decisionWork.epoch === epoch &&
+      state.decisionWork.revision === revision) return state.decisionWork.promise;
+  const work = { symbol, epoch, revision, reqId: ++state.decisionReq };
+  state.decisionWork = work;
+  const current = () => state.decisionWork === work && work.reqId === state.decisionReq &&
+    epoch === state.selectionEpoch && symbol === state.symbol && revision === DecisionControls.revision;
+  work.promise = (async () => {
+    try {
+      const d = await DecisionControls.request(symbol);
+      if (!current()) return;
+      state.decision = d;
+      DecisionControls.renderMeta(d);
+      renderDecision();
+    } catch (e) {
+      if (!current()) return;
+      state.decision = null;
+      renderDecision();
+      DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
+    } finally {
+      if (current()) state.decisionWork = null;
+    }
+  })();
+  return work.promise;
 }
 window.addEventListener("decisionprofilechange", () => {
   state.decision = null;
@@ -543,9 +610,14 @@ function connectWS() {
  */
 async function switchSymbol(symbol) {
   if (symbol === state.symbol && state.kline.length) return;
+  state.selectionEpoch++;
+  state.decisionReq++;
+  state.decisionWork = null;
+  DecisionControls.cancelPending();
   state.symbol = symbol;
   state.quote = null;
   state.decision = null;
+  invalidateKline();
   $("qb-title").textContent = symbol;
   DecisionControls.renderMeta(null);
   $("qb-meta").textContent = "";
@@ -556,10 +628,10 @@ async function switchSymbol(symbol) {
   if (state.ws && state.ws.readyState === 1) {
     state.ws.send(JSON.stringify({ action: "subscribe", symbols: [symbol] }));
   }
-  await loadKline();
-  loadDecision();
   const item = state.instruments.find((i) => i.symbol === symbol);
   if (item) $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
+  loadKline();
+  loadDecision();
 }
 
 /* ---------------- 初始化 ---------------- */
@@ -568,7 +640,9 @@ $("periods").addEventListener("click", (e) => {
   if (!btn) return;
   document.querySelectorAll("#periods button").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
-  state.period = Number(btn.dataset.period);
+  const period = Number(btn.dataset.period);
+  if (period !== state.period) invalidateKline();
+  state.period = period;
   loadKline();
 });
 

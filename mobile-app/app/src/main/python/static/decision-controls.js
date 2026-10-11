@@ -2,7 +2,7 @@
 "use strict";
 window.DecisionControls = (() => {
   const storageKey = "za-decision-profiles-v1";
-  let saved = {}, mode = "short", catalog = null, revision = 0;
+  let saved = {}, mode = "short", catalog = null, revision = 0, requestEpoch = 0;
   let saveFailed = false;
   try { saved = JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch (_) {}
   if (!saved || typeof saved !== "object" || Array.isArray(saved)) saved = {};
@@ -29,11 +29,15 @@ window.DecisionControls = (() => {
     try { localStorage.setItem(storageKey, JSON.stringify({mode, profiles})); saveFailed = false; }
     catch (_) { saveFailed = true; }
   }
+  function cancelPending() {
+    requestEpoch++;
+    for (const work of inFlight.values()) work.controller.abort();
+    inFlight.clear();
+  }
   function changed() {
     revision++;
     // New selections invalidate obsolete work and its UI immediately.
-    for (const work of inFlight.values()) work.controller.abort();
-    inFlight.clear();
+    cancelPending();
     persist();
     render();
     renderMeta(null);
@@ -100,7 +104,13 @@ window.DecisionControls = (() => {
   // A failed initialization is also surfaced by request(), without an unhandled rejection.
   ready.catch(() => {});
   async function request(symbol) {
+    const epoch = requestEpoch;
     await ready;
+    if (epoch !== requestEpoch) {
+      const error = new Error("评估请求已取消");
+      error.name = "AbortError";
+      throw error;
+    }
     const query = new URLSearchParams({mode, ...profiles[mode]});
     const key = `${symbol}?${query}`;
     if (inFlight.has(key)) return inFlight.get(key).promise;
@@ -121,5 +131,5 @@ window.DecisionControls = (() => {
     inFlight.set(key, work);
     return work.promise;
   }
-  return {ready, request, renderMeta, escape, get mode() {return mode;}, get revision() {return revision;}};
+  return {ready, request, cancelPending, renderMeta, escape, get mode() {return mode;}, get revision() {return revision;}};
 })();

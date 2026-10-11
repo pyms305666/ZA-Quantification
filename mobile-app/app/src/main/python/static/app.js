@@ -14,6 +14,9 @@ const state = {
   quote: null,
   decision: null,
   decisionReq: 0,
+  selectionEpoch: 0,
+  klineWork: null,
+  decisionWork: null,
   instruments: [],
   watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
   screen: "quotes",
@@ -37,15 +40,23 @@ const now = () => new Date().toLocaleTimeString("zh-CN", { hour12: false });
  * @param {number} timeoutMs 超时毫秒数（默认 45s，K线/决策类接口较慢）
  * @returns {Promise<Object>} 后端 JSON；非 2xx 抛 Error(detail)，供各 load* 统一捕获
  */
-async function api(path, timeoutMs = 45000) {
+async function api(path, timeoutMs = 45000, signal) {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const r = await fetch(path, { signal: controller.signal });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
     return body;
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", abort);
+  }
 }
 
 /* ---------- 屏幕切换 ---------- */
@@ -73,15 +84,9 @@ function removeWatch(symbol) {
   state.watchlist.splice(i, 1);
   localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   if (symbol === state.symbol) {
-    // 删的是当前查看的合约：切回第一个自选，否则留在空页
-    state.symbol = state.watchlist[0] || state.symbol;
-    $("k-name").textContent = state.symbol.split(".")[1];
-    $("k-code").textContent = state.symbol;
-    $("d-code").textContent = state.symbol;
-    $("d-name").textContent = state.symbol;
-    if (state.ws && state.ws.readyState === 1) {
-      state.ws.send(JSON.stringify({ action: "subscribe", symbols: state.watchlist.length ? state.watchlist : [state.symbol] }));
-    }
+    // 有剩余自选时沿用同一切换入口，空自选仍保留当前查看合约。
+    if (state.watchlist.length) switchSymbol(state.watchlist[0], { navigate: false });
+    else sendSubscribe();
   } else if (state.ws && state.ws.readyState === 1) {
     // 删除非当前合约：取消订阅该合约，避免残留
     state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: [symbol] }));
@@ -179,7 +184,11 @@ function initCharts() {
  */
 function renderKline() {
   const k = state.kline;
-  if (!k.length) return;
+  if (!k.length) {
+    if (state.chart) state.chart.setOption({ xAxis: { data: [] }, series: [{ data: [] }, { data: [] }] });
+    if (state.macdChart) state.macdChart.setOption({ xAxis: { data: [] }, series: [{ data: [] }] });
+    return;
+  }
   const dates = k.map(b => fmtTime(b.datetime));
   const ohlc = k.map(b => [b.open, b.close, b.low, b.high]);
   const closes = k.map(b => b.close);
@@ -226,7 +235,12 @@ function colorBy(v, ref) { return ref == null ? "" : (v >= ref ? "up" : "down");
  */
 function renderQuote() {
   const q = state.quote;
-  if (!q) return;
+  if (!q) {
+    for (const id of ["k-last", "k-chg", "k-open", "k-high", "k-low", "k-preclose", "k-vol", "k-oi", "ds-bid", "ds-ask", "ds-last"]) $(id).textContent = "--";
+    $("k-last").className = "big num";
+    $("k-chg").className = "chg num";
+    return;
+  }
   if (q.symbol) state.quotes[q.symbol] = q;   // 缓存，供自选列表切屏后回填
   $("k-last").textContent = fmt(q.last);
   $("k-last").className = "big num " + colorBy(q.last, q.pre_close);
@@ -267,6 +281,10 @@ function renderDecision(d) {
       $(id).textContent = "--";
     $("dd-why").replaceChildren();
     $("dd-bar-l").style.width = "50%";
+    for (const id of ["dc-dir", "dc-score", "dc-entry", "dc-stop", "dc-t1", "dc-t2"]) $(id).textContent = "--";
+    document.querySelector(".dcq-bar .l").style.width = "50%";
+    const note = $("dc-profile-note");
+    if (note) note.textContent = "";
     $("dc-quick").classList.add("hidden");
     return;
   }
@@ -308,38 +326,71 @@ function renderQuickPanel(d) {
 }
 
 /* ---------- 加载 ---------- */
+function invalidateKline() {
+  state.klineReq++;
+  if (state.klineWork) state.klineWork.controller.abort();
+  state.klineWork = null;
+  state.kline = [];
+  renderKline();
+}
+
 /**
  * 拉取并渲染当前合约的 K 线（20 秒定时轮询 + 切合约/切周期时手动触发）。
  * klineReq 序号防乱序：慢请求返回时若已有更新的请求，直接丢弃本次结果。
  */
 async function loadKline() {
-  const reqId = ++state.klineReq;
-  try {
-    const d = await api(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=150`, 45000);
-    if (reqId !== state.klineReq) return;
-    state.kline = d.bars || [];
-    renderKline();
-  } catch (e) { console.log("kline:", e.message); }
+  const symbol = state.symbol, period = state.period, epoch = state.selectionEpoch;
+  const key = `${symbol}|${period}|150`;
+  if (state.klineWork && state.klineWork.key === key && state.klineWork.epoch === epoch) return state.klineWork.promise;
+  if (state.klineWork) state.klineWork.controller.abort();
+  const work = { key, epoch, reqId: ++state.klineReq, controller: new AbortController() };
+  state.klineWork = work;
+  const current = () => state.klineWork === work && work.reqId === state.klineReq &&
+    epoch === state.selectionEpoch && symbol === state.symbol && period === state.period;
+  work.promise = (async () => {
+    try {
+      const d = await api(`/api/v1/kline/${encodeURIComponent(symbol)}?period=${period}&count=150`, 45000, work.controller.signal);
+      if (!current()) return;
+      state.kline = d.bars || [];
+      renderKline();
+    } catch (e) {
+      if (current() && e.name !== "AbortError") console.log("kline:", e.message);
+    } finally {
+      if (current()) state.klineWork = null;
+    }
+  })();
+  return work.promise;
 }
 /**
  * 拉取并渲染决策评估（6 秒定时轮询；后端数据不足时返回 pending 占位）。
  * 同样带 reqId 序号防乱序。
  */
 async function loadDecision() {
-  const reqId = ++state.decisionReq, symbol = state.symbol;
-  try {
-    const d = await DecisionControls.request(symbol);
-    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
-    state.decision = d;
-    DecisionControls.renderMeta(d);
-    renderDecision(d.pending ? null : d);
-    if (!d.pending) renderQuickPanel(d);
-  } catch (e) {
-    if (reqId !== state.decisionReq || symbol !== state.symbol) return;
-    state.decision = null;
-    renderDecision(null);
-    DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
-  }
+  const symbol = state.symbol, epoch = state.selectionEpoch, revision = DecisionControls.revision;
+  if (state.decisionWork && state.decisionWork.symbol === symbol && state.decisionWork.epoch === epoch &&
+      state.decisionWork.revision === revision) return state.decisionWork.promise;
+  const work = { symbol, epoch, revision, reqId: ++state.decisionReq };
+  state.decisionWork = work;
+  const current = () => state.decisionWork === work && work.reqId === state.decisionReq &&
+    epoch === state.selectionEpoch && symbol === state.symbol && revision === DecisionControls.revision;
+  work.promise = (async () => {
+    try {
+      const d = await DecisionControls.request(symbol);
+      if (!current()) return;
+      state.decision = d;
+      DecisionControls.renderMeta(d);
+      renderDecision(d.pending ? null : d);
+      if (!d.pending) renderQuickPanel(d);
+    } catch (e) {
+      if (!current()) return;
+      state.decision = null;
+      renderDecision(null);
+      DecisionControls.renderMeta(null, `评估不可用：${e.message}`);
+    } finally {
+      if (current()) state.decisionWork = null;
+    }
+  })();
+  return work.promise;
 }
 window.addEventListener("decisionprofilechange", () => {
   state.decision = null;
@@ -503,10 +554,16 @@ function renderWatchlist() {
  * 首次查看会自动加入自选并持久化；用缓存价格先回填报价头避免闪 "--"；
  * 切屏到 K线并重新拉取 K 线与决策；重新订阅（当前 + 全部自选）。
  */
-function switchSymbol(symbol) {
-  if (symbol === state.symbol) { showScreen("kline"); return; }
+function switchSymbol(symbol, { navigate = true } = {}) {
+  if (symbol === state.symbol) { if (navigate) showScreen("kline"); return; }
+  state.selectionEpoch++;
+  state.decisionReq++;
+  state.decisionWork = null;
+  DecisionControls.cancelPending();
   state.symbol = symbol;
-  state.decision = null; state.kline = [];
+  state.decision = null;
+  invalidateKline();
+  renderDecision(null);
   DecisionControls.renderMeta(null);
   if (!state.watchlist.includes(symbol)) {
     state.watchlist.push(symbol);
@@ -514,12 +571,12 @@ function switchSymbol(symbol) {
   }
   // 有缓存价格就先回填，避免切换瞬间报价头闪 --（后续实时推送会覆盖）
   state.quote = state.quotes[symbol] || null;
-  if (state.quote) renderQuote();
+  renderQuote();
   $("k-name").textContent = symbol.split(".")[1];
   $("k-code").textContent = symbol;
   $("d-code").textContent = symbol;
   $("d-name").textContent = symbol;
-  showScreen("kline");
+  if (navigate) showScreen("kline");
   // 切换合约时重新订阅当前+全部自选，保证价格持续更新
   sendSubscribe();
   loadKline(); loadDecision();
@@ -613,6 +670,7 @@ function syncPeriodUi() {
  */
 function setPeriod(p) {
   if (!KLINE_PERIODS.some(x => x.p === p)) return;
+  if (p !== state.period) invalidateKline();
   state.period = p;
   localStorage.setItem("klinePeriod", String(p));
   syncPeriodUi();
