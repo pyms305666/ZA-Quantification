@@ -7,7 +7,7 @@
 - [分步验收与限制](acceptance.md)
 - [原始源码快照索引](source-index.json)：92 个文件，原始字节 ZIP 在本聊天工作树 `.local/source-snapshot/v1.2.1-original.zip`，未提交二进制；完整 SHA-256 已登记。原实验冻结清单未重写。
 - [共享文件清单](shared-files.json)与[必要分叉原因/摘要](expected-drift.json)：动态发现新增文件，单端缺失、双方删除既有模块、分叉摘要变化均失败。文本只规范 CRLF，二进制按原字节核对；冻结检查始终保留原始字节哈希。
-- [环境精确锁](../../requirements-locks)：桌面 26、测试 27、Android 15、研究 43、Kronos 58、桌面构建工具 8 个依赖。每个环境附独立版本来源及验证范围，没有在现有环境安装或升级包。Electron/Playwright 保持现有已验证版本，package-lock 完整性值未变。
+- [环境精确锁](../../requirements-locks)：桌面 26、测试 32、Android 15、研究 43、Kronos 58、桌面构建工具 8 个依赖。测试锁在技术债阶段为 27 项，V1.2.2 远端 CI 补齐研究特征离线单测所需的 5 项既有依赖；版本取自本机已验证元数据，没有在现有环境安装或升级包。每个环境附独立版本来源及验证范围；Electron/Playwright 的依赖版本和 package-lock 完整性值未变。
 
 ## 离线检查
 

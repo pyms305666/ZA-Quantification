@@ -8,7 +8,9 @@
     "requests",
     "ijson",
     "keyring",
-    "packaging"
+    "packaging",
+    "numpy",
+    "pandas"
   ],
   "packages": {
     "fastapi": "0.141.1",
@@ -37,7 +39,12 @@
     "annotated-types": "0.8.0",
     "pydantic-core": "2.46.4",
     "colorama": "0.4.6",
-    "more-itertools": "11.1.0"
+    "more-itertools": "11.1.0",
+    "numpy": "2.5.2",
+    "pandas": "3.0.5",
+    "python-dateutil": "2.9.0.post0",
+    "six": "1.17.0",
+    "tzdata": "2026.3"
   },
-  "validation_scope": "完整离线 Python/Node/浏览器回归"
+  "validation_scope": "完整离线 Python/Node/浏览器回归；研究特征离线单测的 numpy/pandas 及传递依赖取自同机已验证研究元数据，补齐 CI 独立测试环境，不升级现场"
 }
