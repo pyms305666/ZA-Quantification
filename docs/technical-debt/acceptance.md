@@ -66,6 +66,18 @@ Electron 与启动器按 TQ_GATEWAY_CONFIG 或工作目录 config.json 读取服
 
 正式 release 缺完整生产签名配置明确失败，取消 debug 回退；debug 开发路径保留。产物门禁核对 SDK 签名、非 debug 证书、应用 ID、版本/ABI 及外部预期 SHA-256。本轮仅 Fake 签名输出/临时 ZIP 检查，没有执行 Gradle 构建、SDK 签名或安装。加入只读健康检查和无实盘/打包作业的离线 CI。
 
-最终完整入口 `python -B tools/check_offline.py --python38 .local/python38/python.exe` 通过：177 个 Python 测试，5 个 Node 测试入口（含桌面和手机浏览器），真实 CPython 3.8.10 的 87 个共享/Android Fake 测试。Python 3.8 使用官方免安装 ZIP，记录来源/哈希，读取既有 Android 依赖时禁字节码写入；未安装或升级环境。四种持仓模式固定输入输出和取数顺序基线通过。
+本步完整入口 `python -B tools/check_offline.py --python38 .local/python38/python.exe` 通过：177 个 Python 测试，5 个 Node 测试入口（含桌面和手机浏览器），真实 CPython 3.8.10 的 87 个共享/Android Fake 测试。Python 3.8 使用官方免安装 ZIP，记录来源/哈希，读取既有 Android 依赖时禁字节码写入；未安装或升级环境。四种持仓模式固定输入输出和取数顺序基线通过。
+
+最终复核补强取数顺序断言，显式比较原基线的有序请求条目；内存倒序探针使三个多周期模式全部按预期失败，单周期长线顺序唯一。根目录、Electron 与 Android 当前 README 已同步缺密钥失败、用户目录日志和统一离线入口，历史验收文档保留原样。
 
 扩大后的漂移、原始冻结/现场守卫、可移植 Git 守卫、精确依赖及差异检查通过。现场只读健康检查显示两个 PID 存活且心跳新近，未对验证程序发送操作。`release_gate.py` 在本轮没有发布密钥时按预期返回 1，并明确禁止发布。真实设备、实际密钥/产物和远端 CI 仍未验收，完整范围及命令见本目录 README。
+
+## 最终独立复核与补正
+
+首次独立复核确认上述门禁通过，但用纯内存 Fake 和真实 DiffClient executor 复现 Android 跨层关闭缺口：服务器线程退出后，HTTP worker 尚未退出时，新启动会创建第二个 Hub/行情线程。修复在服务器循环结束、跳过运行或初始化异常的所有路径执行 `Services.wait_stopped`，仅在 Android 后台 wrapper 上等待 DIFF 和恢复线程实际退出，期间旧 wrapper 引用阻止创建新 Hub；Java 主线程仍只提交停止请求，原 HTTP 超时与 Web loop 的有界关闭不变。
+
+新增跨层回归在服务器关闭、Fake HTTP 被阻塞时连续启动 3 次，确认只有一个 Hub；解除阻塞后检查 executor/恢复线程退出，再允许新生命周期。两个初始化/服务器异常回归检查最终等待，共享 Services 检查两类线程都收尾。内存移除最终等待的探针按预期触发失败，未调用真实 HTTP 或现场服务。
+
+补正后完整离线入口通过：181 个 Python 测试、5 个 Node 测试入口、真实 CPython 3.8 的 90 个共享/Android Fake 测试；32 文件/7 分叉漂移与原始冻结/现场守卫通过。最终复核补正另作独立提交，保留前七步提交与验收记录。
+
+第二轮独立复核结论 `VERDICT: PASS`。复核方独立重跑完整入口、可移植冻结守卫和跨层撤销等待探针，确认原关闭缺口被回归识别并已修复；当前文档与实现一致。没有执行构建、签名、安装、推送、发布或操作现场程序。

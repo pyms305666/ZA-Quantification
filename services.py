@@ -69,6 +69,18 @@ class Services:
         finally:
             await loop.run_in_executor(None, self.subscriptions.close)
 
+    def wait_stopped(self) -> None:
+        """Android 后台入口最终收尾，旧线程退出前保留整个后端生命周期。
+
+        仅在服务器循环结束后的 wrapper 线程调用，不在 Java 主线程/Web loop
+        等待。已有 HTTP 工作按原超时自然完成，关闭请求不会强制终止它。
+        """
+        self.subscriptions.request_stop()
+        try:
+            self.client.close(timeout=None)
+        finally:
+            self.subscriptions.close(timeout=None)
+
     def on_quote_change(self, quote: object) -> None:
         """在 tqsdk 事件循环线程内被调用：只写缓存并投递到异步队列。"""
         self.last_quote_unix = time.time()

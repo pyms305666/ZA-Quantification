@@ -46,7 +46,7 @@ class SubscriptionManager:
         self._stop.set()
         self._wake.set()
 
-    def close(self, timeout: float = 3.0) -> None:
+    def close(self, timeout: Optional[float] = 3.0) -> None:
         self.request_stop()
         with self._lock:
             worker = self._worker

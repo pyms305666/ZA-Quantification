@@ -494,6 +494,16 @@ class DiffLifecycleTests(unittest.TestCase):
 
 
 class ServiceLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_wrapper_wait_stopped_joins_both_managed_threads(self):
+        calls = []
+        client = types.SimpleNamespace(close=lambda timeout: calls.append(("diff", timeout)))
+        subscriptions = types.SimpleNamespace(request_stop=lambda: calls.append("request_stop"),
+                                              close=lambda timeout: calls.append(("recovery", timeout)))
+        service = Services(None, client, None, subscriptions, None, object())
+        # 在线程执行最终 join，Web loop 继续运行。
+        await asyncio.get_running_loop().run_in_executor(None, service.wait_stopped)
+        self.assertEqual(calls, ["request_stop", ("diff", None), ("recovery", None)])
+
     async def test_services_close_orders_stop_and_supports_android_stub(self):
         for connections in (types.SimpleNamespace(), types.SimpleNamespace(close_all=mock.AsyncMock())):
             calls = []

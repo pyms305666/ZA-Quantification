@@ -4,6 +4,8 @@
 
 V1.2.1 提供 Windows C 直连版安装包/独立程序和 Android 正式签名 APK，下载见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.1)，测试与打包记录见 [V1.2.1 发布验收](docs/V1.2.1发布验收-2026-09-26.md)。
 
+本隔离分支另包含 V1.2.1 技术债修复，尚未打包或发布；源码快照、冻结边界、依赖锁及离线验收见 [技术债交付索引](docs/technical-debt/README.md)。当前验证中的模型源码保持冻结，只同步本轮实际修改的非冻结共享文件。
+
 项目只读取行情、计算指标并生成参考评估，**不提供下单或自动交易能力**。桌面 Web、Electron 和 Android 端均通过本机运行的 Python 行情后端工作；Android 在设备内嵌入 Python，不依赖本项目自建云服务器。
 
 ## 当前状态
@@ -23,7 +25,7 @@ Windows PowerShell：
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-locks/desktop.txt
 Copy-Item config.json.example config.json # 首次使用；按需编辑
 python launcher.py
 ```
@@ -89,7 +91,7 @@ Electron 是 UI 桌面壳，行情后端仍是独立 Python 进程。它会探�
 
 ```powershell
 Set-Location electron
-npm install
+npm ci
 npm start
 ```
 
@@ -104,7 +106,7 @@ Set-Location mobile-app
 .\gradlew.bat --no-daemon assembleDebug
 ```
 
-Debug APK 在 `app/build/outputs/apk/debug/app-debug.apk`。发布包使用 `assembleRelease`；签名配置从被忽略的 `keystore.properties` 读取，若无发布密钥配置，构建脚本会回退 debug 签名，交付前必须确认 APK 签名与升级要求。版本号和 ABI 配置见 `mobile-app/app/build.gradle`。详见 [`mobile-app/README.md`](mobile-app/README.md)。
+Debug APK 在 `app/build/outputs/apk/debug/app-debug.apk`。发布包使用 `assembleRelease`；签名配置从被忽略的 `keystore.properties` 读取，缺完整生产密钥配置或 `certificateSha256` 时明确失败，debug 路径仍可用。正式交付还需核验产物签名、版本、ABI 和预期 SHA-256，见 [发布门禁](docs/technical-debt/README.md#正式发布门禁)。版本号和 ABI 配置见 `mobile-app/app/build.gradle`。详见 [`mobile-app/README.md`](mobile-app/README.md)。
 
 ## 目录导航
 
@@ -128,14 +130,14 @@ dist/                     本机构建/发布产物（若存在）
 
 ## 开发与验证
 
-按需执行以下检查：
+新建测试环境使用 `requirements-locks/test.txt` 和 Electron 的 `npm ci`，不升级正在验证的环境。普通克隆运行统一离线入口：
 
 ```powershell
-python -m unittest discover -s tests -v
-python tools/check_core_drift.py --strict
-Set-Location electron; npm test
-npm run test:decision-ui
+python -B tools/check_offline.py --git-only
+# 已准备免安装 Python 3.8 运行时及 Android 测试依赖时，可加 --python38 <python.exe>
 ```
+
+入口包含 Python、Electron 纯逻辑、模拟请求/WS 的双端浏览器、依赖、漂移及可移植冻结检查；本机原始字节/现场守卫与 Python 3.8 命令见 [离线验收说明](docs/technical-debt/README.md#离线检查)。`test:gui` 会启动真实后端，须在单独现场验收任务中执行。
 
 Android 构建需使用上节所列本机 SDK 和 Gradle Wrapper。真实行情、断网恢复、锁屏保活及 UI 行为需要有效天勤账号、合适交易时段和/或 Android 真机；单元测试和 APK 构建不能替代这些验证。项目未包含可据以推断生产网页部署方式的容器或 CI/CD 部署定义。
 

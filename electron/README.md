@@ -19,26 +19,29 @@ Python FastAPI（127.0.0.1:8000）
 - 没有后端运行：按候选链自动选择 Python 解释器启动 `launcher.py`
   （① 项目 `.venv/Scripts/python.exe` → ② `py -3` → ③ 系统 PATH `python`），
   等待服务就绪后打开窗口；实际选中的命令会写入日志；
-- 8000 端口被另一条路线占用：显示端口冲突页面。
+- 按与启动器相同的 `TQ_GATEWAY_CONFIG` 或工作目录 `config.json` 读取地址，支持通配监听地址与 IPv6；该地址被另一条路线占用时显示冲突页面。
+- 每次探活最多 1 秒，所有解释器候选共用 30 秒启动期限；退出仅清理本次启动的后端进程。
 
 ```powershell
 cd electron
-npm install
+npm ci
 npm start
 ```
 
-**后端日志与诊断**：后端 stdout/stderr 追加写入 `electron/backend.log`；
+**后端日志与诊断**：Windows 日志位于 `%LOCALAPPDATA%/ZAQuant/logs/`（无该变量时使用 Electron 用户目录）；后端 stdout/stderr 写入 `electron-backend.log`，Python 日志写入 `gateway.log`。UTF-8，单文件最多 5 MiB、3 个备份，过滤凭据和完整行情；
 启动失败时，错误页会直接展示最近 40 行日志尾部、实际尝试的命令与日志文件路径。
 若启动失败，也可先在项目根目录单独运行：
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-locks/desktop.txt
 python launcher.py
 ```
 
 然后再执行 `npm start`，这样可以直接看到 Python 后端的错误输出。
 
 ## 测试
+
+本轮完整离线检查从仓库根目录运行 `python -B tools/check_offline.py --git-only`，包含启动、连接、双端显示一致性及模拟接口浏览器测试。精确测试依赖与本机现场冻结守卫见 [验收说明](../docs/technical-debt/README.md#离线检查)。以下真实 GUI 测试须在独立现场验收任务执行。
 
 ```powershell
 cd electron
@@ -61,7 +64,7 @@ Electron 打包默认只包含桌面壳，**不会自动把 Python 后端和行�
 
 ## 当前已知问题
 
-- 后端探测逻辑已有 3 组单元测试，窗口级 GUI 测试已覆盖端口冲突、自动拉起后端和关闭窗口后的后端清理。
+- 后端探测与启动诊断通过纯逻辑 Fake 回归；本轮未运行真实 Electron 窗口或实盘后端，历史 GUI 证据不能替代当前构建验收。
 - Electron 打包仍只包含桌面壳；把 Python 后端、依赖与资源打成真正的一键安装包仍需单独设计和验收。
 
 完整项目检查结果见 [`../docs/项目检查报告-2026-09-11.md`](../docs/项目检查报告-2026-09-11.md)。

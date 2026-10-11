@@ -17,3 +17,8 @@ class ModelBaselineTests(unittest.TestCase):
                   for m in PROFILES}
         # JSON canonicalization accounts for tuple/list serialization only.
         self.assertEqual(json.loads(json.dumps(actual)), expected)
+        # Dict equality ignores insertion order; API history calls consume items in order.
+        for mode in PROFILES:
+            with self.subTest(mode=mode):
+                self.assertEqual([(str(period), count) for period, count in actual[mode]["requests"].items()],
+                                 list(expected[mode]["requests"].items()))

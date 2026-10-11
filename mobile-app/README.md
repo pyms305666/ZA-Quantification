@@ -38,13 +38,16 @@ cd mobile-app
 
 - 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
   （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。
-  文件缺失时 release 构建自动回退 debug 签名，clone 后仍可直接出包。
+  缺完整生产密钥配置或 `certificateSha256` 时 release 明确失败；debug 构建保持可用。
+  相对 `storeFile` 路径以 `mobile-app/app` 为基准。`certificateSha256` 填生产证书公开 SHA-256。
 - keystore 与密码**离线备份**（密码在 `keystore.properties`）。丢失后无法再对已发布应用出升级包。
 - 验签：`E:/android-sdk/build-tools/34.0.0/apksigner.bat verify --print-certs <apk>`，
   证书 SHA-256 应为 `f9e19c0c2c435a37c801b6876f20943d81350d8f42585077d2dd473e448d037d`。
 - **签名变更不能覆盖安装**：从 debug 包升级到 release 包必须先卸载（会清 App 数据）；
   此后所有升级必须用同一 keystore 签名。
 - minify 保持 `false`：Chaquopy 的 Python/Java 桥接在混淆下风险高，无混淆需求。
+
+正式构建前通过依赖、漂移与冻结检查，构建后还需核验签名、应用 ID、版本、ABI 和外部预期 SHA-256，命令见 [发布门禁](../docs/technical-debt/README.md#正式发布门禁)。本轮技术债修复未执行打包、签名或设备验收。
 
 ## 已知构建警告（已核实、可接受）
 
@@ -64,8 +67,9 @@ cd mobile-app
   （Chaquopy 的 createDsl 把 python 扩展挂在 defaultConfig 上，放 `android{}` 里会报
   "Could not find method python()"）。
 - 后端 Python 源码在 `app/src/main/python/`，与根目录桌面版是**两份拷贝**：
-  改 `tqdiff/`、`market/`、`services.py` 等核心逻辑时**两端要同步**，
-  并跑 `python tools/check_core_drift.py` 确认没有意外分叉。
+  只同步实际修改的非冻结共享文件，保留 Android 接口 stub；当前验证中的模型源码与旧模型副本保持原样。
+  从仓库根目录运行 `python -B tools/check_core_drift.py --strict` 确认没有意外分叉。
+- Android 依赖固定在 `../requirements-locks/android.txt`。完整离线验收与真实 Python 3.8 共享/Fake 测试见 [验收说明](../docs/technical-debt/README.md#离线检查)；这些检查不替代设备生命周期与原生 ABI 验收。
 - App 私有可写目录通过 Java 系统属性 `za.filesdir` 传入后端
   （`MainActivity.java` 设置，`config.py`/`backend_main.py` 读取），凭据与合约缓存都写在那里。
 - 合约目录采用 gzip 下载 + ijson 流式解析 + pickle 精简索引（`tqdiff/symbol_index.py`），

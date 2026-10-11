@@ -225,11 +225,12 @@ class DiffClient:
             self._thread = threading.Thread(target=self._run_loop, name="diff-loop", daemon=True)
             self._thread.start()
 
-    def close(self, timeout: float = 3.0) -> None:
+    def close(self, timeout: Optional[float] = 3.0) -> None:
         """停止行情线程并释放事件循环。
 
         置位停止信号 → 唤醒阻塞中的事件循环 → 等待线程退出（至多 timeout 秒）。
         线程未在超时内退出也不强杀（daemon 线程随进程消亡）。
+        timeout=None 仅供后台入口最终收尾：等待已有 HTTP 工作自然结束。
         """
         with self._lifecycle_lock:
             self._stopping = True

@@ -166,7 +166,10 @@ class MobileServerLifecycleTests(unittest.TestCase):
         self.stack.enter_context(mock.patch.dict(sys.modules, {"uvicorn": self.uvicorn}))
         self.stack.enter_context(mock.patch.object(self.module, "load_config", return_value=object()))
         self.stack.enter_context(mock.patch.object(self.module, "configure_logging"))
-        self.stack.enter_context(mock.patch.object(self.module, "MobileHub", return_value=object()))
+        self.wait_stopped = mock.Mock()
+        self.stack.enter_context(mock.patch.object(self.module, "MobileHub", return_value=
+            types.SimpleNamespace(services=types.SimpleNamespace(wait_stopped=self.wait_stopped))))
+        self.addCleanup(self.wait_stopped.assert_called_once_with)
         self.app = object()
         self.stack.enter_context(mock.patch.object(self.module, "create_mobile_app", return_value=self.app))
 
@@ -195,6 +198,16 @@ class MobileServerLifecycleTests(unittest.TestCase):
 
         self.module.run_mobile_server(on_server=on_server, should_exit=lambda: False)
         self.assertEqual(self.events, [])
+
+    def test_server_error_still_waits_for_managed_threads(self):
+        with mock.patch.object(self.uvicorn.Server, "run", side_effect=RuntimeError("Fake server failed")):
+            with self.assertRaisesRegex(RuntimeError, "Fake server failed"):
+                self.module.run_mobile_server()
+
+    def test_app_initialization_error_still_waits_for_managed_threads(self):
+        with mock.patch.object(self.module, "create_mobile_app", side_effect=RuntimeError("Fake app failed")):
+            with self.assertRaisesRegex(RuntimeError, "Fake app failed"):
+                self.module.run_mobile_server()
 
 
 class BackendThreadLifecycleTests(unittest.TestCase):
@@ -296,6 +309,90 @@ class BackendThreadLifecycleTests(unittest.TestCase):
         self.module.start()
         self.assertTrue(entered.wait(1.0))
         self.assertIsNot(self.module._thread, old_thread)
+        self.assertTrue(self.module.stop(timeout=1.0))
+
+    def test_server_exit_during_http_work_retains_wrapper_and_blocks_new_hub(self):
+        from config import RiskConfig
+        from services import Services
+        from tq.subscriber import SubscriptionManager
+        from tqdiff.client import DiffClient
+
+        mobile = load_android_module("mobile_api")
+        entered = threading.Event()
+        release = threading.Event()
+        server_running = threading.Event()
+        server_exited = threading.Event()
+        clients = []
+        services = []
+        self.release_events.append(release)
+        self.addCleanup(lambda: [client.close(timeout=1.0) for client in clients])
+        self.addCleanup(release.set)
+
+        def build(config, **kwargs):
+            client = DiffClient("fake-account", "fake-password")
+
+            async def session():
+                def blocking_work():
+                    entered.set()
+                    release.wait()
+                await asyncio.get_running_loop().run_in_executor(None, blocking_work)
+                await asyncio.Event().wait()
+
+            client._session = session
+            real_close = client.close
+            # 加速原 3 秒 join，保留最终后台 join(None) 和真实 executor 收尾。
+            client.close = lambda timeout=3.0: real_close(timeout=None if timeout is None else 0.01)
+            subscriptions = SubscriptionManager(client, object())
+            service = Services(config, client, object(), subscriptions, mock.Mock(), types.SimpleNamespace())
+            clients.append(client)
+            services.append(service)
+            return service
+
+        class FakeServer:
+            def __init__(self, config):
+                self.config = config
+                self.should_exit = False
+
+            def run(self):
+                async def lifecycle():
+                    async with self.config.app.router.lifespan_context(self.config.app):
+                        server_running.set()
+                        while not self.should_exit:
+                            await asyncio.sleep(0.001)
+                    server_exited.set()
+                asyncio.run(lifecycle())
+
+        uvicorn = types.SimpleNamespace(Config=lambda app, **kwargs: types.SimpleNamespace(app=app), Server=FakeServer)
+        self.stack.enter_context(mock.patch.dict(sys.modules, {"uvicorn": uvicorn}))
+        self.stack.enter_context(mock.patch.object(mobile, "load_config", return_value=types.SimpleNamespace(risk=RiskConfig())))
+        self.stack.enter_context(mock.patch.object(mobile, "configure_logging"))
+        self.stack.enter_context(mock.patch.object(mobile, "build_services", side_effect=build))
+        self.install_server(mobile.run_mobile_server)
+
+        self.module.start()
+        self.assertTrue(server_running.wait(1.0))
+        self.assertTrue(entered.wait(1.0))
+        wrapper = self.module._thread
+        diff_thread = clients[0]._thread
+        self.module.request_stop()
+        self.assertTrue(server_exited.wait(1.0))
+        self.assertTrue(diff_thread.is_alive())
+        self.assertFalse(self.module.stop(timeout=0.0))
+        for _ in range(3):
+            self.module.start()
+        self.assertIs(self.module._thread, wrapper)
+        self.assertEqual(len(clients), 1)
+
+        release.set()
+        self.assertTrue(self.module.stop(timeout=1.0))
+        self.assertIsNone(clients[0]._thread)
+        self.assertIsNone(clients[0]._executor)
+        self.assertIsNone(services[0].subscriptions._worker)
+        server_running.clear()
+        self.module.start()
+        self.assertTrue(server_running.wait(1.0))
+        self.assertEqual(len(clients), 2)
+        self.assertFalse(diff_thread.is_alive())
         self.assertTrue(self.module.stop(timeout=1.0))
 
 

@@ -383,12 +383,17 @@ def run_mobile_server(host: str = "127.0.0.1", port: int = 8000,
     config = load_config()
     configure_logging(config)
     hub = MobileHub(config, static_dir)
-    app = create_mobile_app(hub)
-    server = uvicorn.Server(uvicorn.Config(
-        app, host=host, port=port, log_level="warning", access_log=False, log_config=None))
-    if on_server is not None:
-        on_server(server)
-    if should_exit is not None and should_exit():
-        server.should_exit = True
-    if not server.should_exit:
-        server.run()
+    try:
+        app = create_mobile_app(hub)
+        server = uvicorn.Server(uvicorn.Config(
+            app, host=host, port=port, log_level="warning", access_log=False, log_config=None))
+        if on_server is not None:
+            on_server(server)
+        if should_exit is not None and should_exit():
+            server.should_exit = True
+        if not server.should_exit:
+            server.run()
+    finally:
+        # 服务器退出不代表 HTTP executor/恢复线程退出。保留 backend_main 的
+        # wrapper，阻止新的 Hub/行情线程提前创建；此处不占 Java 主线程。
+        hub.services.wait_stopped()
