@@ -552,6 +552,11 @@ class DiffClient:
                     buffer["last_id"] = int(last_id)
                 except (TypeError, ValueError):
                     pass
+            # 淘汰过老的行（最多保留 max(buffer["view_width"] * 2, 1000) 根，防止无限累加）
+            if len(buffer["rows"]) > 1500:
+                cutoff = buffer["last_id"] - max(buffer.get("view_width", 400) + 100, 800)
+                for old_id in [k for k in buffer["rows"] if k < cutoff]:
+                    buffer["rows"].pop(old_id, None)
             buffer["ready"].set()
 
     def _dispatch_quote(self, symbol: str, snapshot: dict) -> None:
@@ -730,6 +735,8 @@ class DiffClient:
             self._subscribed.discard(symbol)
             self._quotes.pop(symbol, None)
             self._quote_events.pop(symbol, None)
+            for k in [ck for ck in self._charts if ck[0] == symbol]:
+                self._charts.pop(k, None)
         await self._resend_subscribe()
         return None
 
@@ -834,6 +841,14 @@ class DiffClient:
         dur_ns = period * 1_000_000_000
         fetch_length = max(count, 400)
         key = (canonical, dur_ns)
+        chart_id = f"ZAQ_{abs(hash(key)) % 10**10}"
+        pack = {
+            "aid": "set_chart",
+            "chart_id": chart_id,
+            "ins_list": canonical,
+            "duration": dur_ns,
+            "view_width": fetch_length,
+        }
         with self._data_lock:
             buffer = self._charts.get(key)
             if buffer is None:
@@ -844,23 +859,19 @@ class DiffClient:
                     "view_width": fetch_length,
                 }
                 self._charts[key] = buffer
+                needs_chart_pack = True
             else:
-                buffer["view_width"] = max(buffer["view_width"], fetch_length)
+                needs_chart_pack = (fetch_length > buffer.get("view_width", 0))
+                if needs_chart_pack:
+                    buffer["view_width"] = fetch_length
             rows = dict(buffer["rows"])
             last_id = buffer["last_id"]
-        if last_id < 0:
+        if last_id < 0 or needs_chart_pack:
             # 注意：合约服务就绪（insserve_ready）之前发送的 set_chart 会被前置丢弃，
-            # 因此轮询重发直到服务器返回 last_id（实测 2~6 秒内就绪）。
-            chart_id = f"ZAQ_{abs(hash(key)) % 10**10}"
-            pack = {
-                "aid": "set_chart",
-                "chart_id": chart_id,
-                "ins_list": canonical,
-                "duration": dur_ns,
-                "view_width": fetch_length,
-            }
+            # 初始化或需要扩容 view_width 时重发并等待
             if KLINE_DEBUG:
-                logger.info("[kline #%d] set_chart pack=%s", req_id, pack)
+                logger.info("[kline #%d] set_chart pack=%s (init=%s expand=%s)",
+                            req_id, pack, last_id < 0, needs_chart_pack)
             deadline = time.monotonic() + 20.0
             resend_at = 0.0
             while time.monotonic() < deadline:

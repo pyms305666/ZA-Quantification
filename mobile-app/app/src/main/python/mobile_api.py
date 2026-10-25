@@ -217,6 +217,26 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         return _json({"total": len(items), "exchange": exchange,
                       "keyword": keyword, "items": items})
 
+    async def instruments_by_exchange(request):
+        if not hub.client.connected:
+            return _json({"detail": "天勤未连接"}, 503)
+        exchange = request.path_params["exchange"].upper()
+        try:
+            items = await run_blocking(hub.instruments.list, exchange=exchange)
+        except TqClientError as error:
+            return _json({"detail": str(error)}, 503)
+        return _json({"total": len(items), "exchange": exchange, "items": items})
+
+    async def options(request):
+        if not hub.client.connected:
+            return _json({"detail": "天勤未连接"}, 503)
+        underlying = request.path_params["underlying"]
+        try:
+            symbols = await run_blocking(hub.instruments.options, underlying)
+        except TqClientError as error:
+            return _json({"detail": str(error)}, 422)
+        return _json({"underlying": underlying, "total": len(symbols), "symbols": symbols})
+
     async def quote(request):
         symbol = request.path_params["symbol"]
         if not hub.client.connected:
@@ -224,6 +244,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         symbol = await run_blocking(normalize_symbol, hub.client, symbol)
         if symbol is None:
             return _json({"detail": "合约代码无法解析"}, 422)
+        instrument = await run_blocking(hub.instruments.get, symbol)
+        if instrument is None:
+            if not getattr(hub.client, "catalog_ready", True):
+                return _json({"detail": "合约目录后台下载中，请稍候重试"}, 503)
+            return _json({"detail": f"合约不存在：{symbol}"}, 422)
         cached = hub.cache.get(symbol)
         if cached is not None:
             return _json({"symbol": symbol, "data": cached.to_dict(), "pending": False})
@@ -263,6 +288,11 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         symbol = await run_blocking(normalize_symbol, hub.client, symbol)
         if symbol is None:
             return _json({"detail": "合约代码无法解析"}, 422)
+        instrument = await run_blocking(hub.instruments.get, symbol)
+        if instrument is None:
+            if not getattr(hub.client, "catalog_ready", True):
+                return _json({"detail": "合约目录后台下载中，请稍候重试"}, 503)
+            return _json({"detail": f"合约不存在：{symbol}"}, 422)
         cached = hub.cache.get(symbol)
         if cached is None:
             return _json({"symbol": symbol, "pending": True,
@@ -348,6 +378,8 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         Route("/api/v1/auth", auth_delete, methods=["DELETE"]),
         Route("/api/v1/status", status),
         Route("/api/v1/instruments", instruments),
+        Route("/api/v1/instruments/{exchange}", instruments_by_exchange),
+        Route("/api/v1/options/{underlying:path}", options),
         Route("/api/v1/quote/{symbol:path}", quote),
         Route("/api/v1/kline/{symbol:path}", kline),
         Route("/api/v1/decision/{symbol:path}", decision),

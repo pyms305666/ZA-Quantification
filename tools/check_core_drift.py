@@ -36,6 +36,7 @@ SHARED = [
     "tq/instruments.py",
     "tq/subscriber.py",
     "tqdiff/client.py",
+    "mobile_api.py",
 ]
 
 # 预期内的分叉（必须留档原因）；这些文件出现 DIFF 不算"意外漂移"

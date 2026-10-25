@@ -13,6 +13,8 @@ import android.os.PowerManager;
 import android.provider.Settings;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebViewClient;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 import java.io.BufferedReader;
@@ -36,13 +38,46 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         // USB 调试辅助：允许 chrome://inspect 检查 WebView（发布审计时可移除）
         android.webkit.WebView.setWebContentsDebuggingEnabled(true);
-        web.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);   // 模拟器软渲染，避免硬件加速合成黑屏
+        if (isEmulator()) {
+            web.setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null);   // 仅在模拟器软渲染，避免硬件加速合成黑屏；真机保留硬件加速
+        }
         WebSettings st = web.getSettings();
         st.setJavaScriptEnabled(true);
         // 后端在本机 127.0.0.1:8000，缓存只会造成"升级后旧前端被钉死"（v1.1.3 真机教训：
         // WebView 启发式缓存 + OEM 数据恢复让旧 index/app.js 长期不回源），本地加载代价可忽略
         st.setCacheMode(WebSettings.LOAD_NO_CACHE);
         st.setDomStorageEnabled(true);
+        web.setWebViewClient(new WebViewClient() {
+            @SuppressWarnings("deprecation")
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                if (url != null && (url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost"))) {
+                    return false;
+                }
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+                return true;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (uri != null) {
+                    String host = uri.getHost();
+                    if ("127.0.0.1".equals(host) || "localhost".equals(host)) {
+                        return false;
+                    }
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                        startActivity(intent);
+                    } catch (Exception ignored) {}
+                    return true;
+                }
+                return super.shouldOverrideUrlLoading(view, request);
+            }
+        });
         setContentView(web);
         web.loadDataWithBaseURL(null,
             "<p style='font-family:sans-serif;text-align:center;margin-top:45%;color:#8b96a3'>启动中…</p>",
@@ -122,4 +157,30 @@ public class MainActivity extends Activity {
                 "text/html", "utf-8", null));
         }).start();
     }
+
+    private static boolean isEmulator() {
+        return Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || "google_sdk".equals(Build.PRODUCT);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (web != null) {
+            web.evaluateJavascript("window.navigateBack ? window.navigateBack() : false", value -> {
+                if ("true".equals(value)) {
+                    return;
+                }
+                super.onBackPressed();
+            });
+            return;
+        }
+        super.onBackPressed();
+    }
+
 }

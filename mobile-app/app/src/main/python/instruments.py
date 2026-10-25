@@ -90,8 +90,6 @@ class InstrumentManager:
             # 缺陷 E：关键字存在时不按代码预过滤——中文名（如"棕榈"）的合约代码
             # 里不含该字，会被提前丢弃，后置名称匹配永远收不到它。
             # 仅在"无关键字 + limit"时按代码截断（启动保护）。
-            if not keyword and code_keyword and code_keyword not in symbol.lower():
-                continue
             candidates.append(symbol)
             if limit and not keyword and len(candidates) >= limit:
                 break
@@ -113,6 +111,8 @@ class InstrumentManager:
                         expired=record["expired"],
                         price_tick=record["price_tick"],
                         volume_multiple=record["volume_multiple"],
+                        expire_rest_days=record.get("expire_rest_days"),
+                        expire_datetime=record.get("expire_datetime"),
                     )
         output: list[Instrument] = []
         for symbol in candidates:
@@ -171,6 +171,7 @@ class InstrumentManager:
             price_tick=record["price_tick"],
             volume_multiple=record["volume_multiple"],
             expire_rest_days=record.get("expire_rest_days"),
+            expire_datetime=record.get("expire_datetime"),
         )
         with self._lock:
             self._info_cache[normalized] = item

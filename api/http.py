@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import Config, save_credentials
+from config import Config, save_credentials, clear_credentials
 from market.cache import QuoteCache
 from market.evaluator import evaluate
 from market.decision_profiles import parse_request, requests_for, profile_catalog
@@ -132,6 +132,13 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
         save_credentials(account, body.password)
         services.client.set_credentials(account, body.password)
         return {"ok": True, "account": mask_account(account), "route": ROUTE_NAME}
+
+    @router.delete("/api/v1/auth")
+    def delete_auth(services: Services = Depends(get_services)) -> dict:
+        """退出登录：清除本地凭据并断开行情连接。"""
+        clear_credentials()
+        services.client.set_credentials("", "")
+        return {"ok": True}
 
     @router.get("/api/v1/status")
     def status(services: Services = Depends(get_services)) -> dict:

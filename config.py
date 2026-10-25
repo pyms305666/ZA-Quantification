@@ -138,6 +138,22 @@ def save_credentials(account: str, password: str) -> Path:
     return path
 
 
+def clear_credentials() -> None:
+    """清除本地保存的天勤凭据（退出登录时调用）。"""
+    path = _credentials_path()
+    try:
+        account, _ = load_saved_credentials()
+        if _keyring_enabled() and account:
+            try:
+                keyring.delete_password(KEYRING_SERVICE, account)
+            except Exception:
+                pass
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
 def load_config(path: Path | None = None) -> Config:
     config = Config()
     config_path = path or _default_config_path()

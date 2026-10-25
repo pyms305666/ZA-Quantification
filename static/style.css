@@ -52,6 +52,13 @@ body {
 }
 .qb-name { min-width: 220px; }
 #qb-title { font-size: 18px; font-weight: 700; }
+.fav-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--amber);
+  border-radius: 4px; padding: 2px 7px; cursor: pointer; font-size: 14px; line-height: 1;
+}
+.fav-btn:hover { border-color: var(--amber); }
+.fav-btn.active { background: rgba(224, 169, 60, 0.18); border-color: var(--amber); }
+
 .qb-price { display: flex; align-items: baseline; gap: 14px; min-width: 260px; }
 #qb-last { font-size: 34px; font-weight: 700; font-family: Consolas, monospace; }
 #qb-change { font-size: 14px; font-weight: 600; font-family: Consolas, monospace; }
@@ -174,9 +181,11 @@ body {
 }
 .modal-box input:focus { border-color: var(--cyan); }
 .auth-error { color: var(--up); font-size: 12px; min-height: 16px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .modal-actions button {
   padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; border: 1px solid var(--border);
 }
 .modal-actions .ghost { background: transparent; color: var(--muted); }
 .modal-actions .primary { background: var(--accent); color: #fff; border-color: #347565; }
+.modal-actions .danger { background: rgba(239, 83, 80, 0.15); color: var(--up); border-color: rgba(239, 83, 80, 0.4); margin-right: auto; }
+.modal-actions .danger.hidden { display: none; }

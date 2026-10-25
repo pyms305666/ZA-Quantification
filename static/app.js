@@ -5,6 +5,12 @@
 const COLORS = { up: "#ef5350", down: "#26a69a", amber: "#e0a93c", cyan: "#4db6e6", muted: "#8b96a3" };
 const PERIODS = { 60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分钟", 3600: "60分钟", 86400: "日线" };
 
+let initialWatchlist = ["SHFE.rb2610", "SHFE.au2612", "DCE.m2609"];
+try {
+  const parsed = JSON.parse(localStorage.getItem("watchlist") || "null");
+  if (Array.isArray(parsed) && parsed.length) initialWatchlist = parsed;
+} catch {}
+
 const state = {
   symbol: "SHFE.rb2610",
   period: 300,
@@ -15,7 +21,7 @@ const state = {
   ws: null,
   instruments: [],
   exchange: "",  // 交易所过滤
-  watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
+  watchlist: initialWatchlist,
   instPoll: null,   // 合约目录失败/未就绪时的自动重试定时器
 };
 
@@ -47,6 +53,15 @@ function fmtPrice(v, digits) {
 }
 /** 成交量/持仓量格式化（整数千分位）；空值显示 "--"。 */
 function fmtVol(v) { return v === null || v === undefined ? "--" : Number(v).toLocaleString("zh-CN"); }
+
+/** 根据合约最小变动价位计算小数位数 */
+function getDigits(symbol) {
+  const item = state.instruments.find((i) => i.symbol === symbol);
+  if (!item || item.price_tick == null) return 2;
+  const s = String(item.price_tick);
+  const dot = s.indexOf(".");
+  return dot >= 0 ? s.length - dot - 1 : 0;
+}
 
 /** K线横轴时间标签：日线 "月-日"，日内 "时:分"。 */
 function fmtTime(ms, daily) {
@@ -92,6 +107,7 @@ const $ = (id) => document.getElementById(id);
 
 /* ---------------- 合约列表 ---------------- */
 let searchTimer = null;
+let searchSeq = 0;
 $("search").addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(loadInstruments, 300);
@@ -102,6 +118,7 @@ $("search").addEventListener("input", () => {
  * 目录未就绪/网络抖动 ≠ 未连接：给出准确文案并每 5 秒自动重试（instPoll）。
  */
 async function loadInstruments() {
+  const seq = ++searchSeq;
   try {
     const keyword = $("search").value.trim();
     const params = new URLSearchParams();
@@ -109,11 +126,16 @@ async function loadInstruments() {
     if (state.exchange) params.set("exchange", state.exchange);
     const url = `/api/v1/instruments${params.toString() ? `?${params}` : ""}`;
     const data = await fetchJSON(url);
+    if (seq !== searchSeq) return;
     state.instruments = data.items || [];
     $("inst-count").textContent = `共 ${data.total} 个`;
     renderContractList();
+    const item = state.instruments.find((i) => i.symbol === state.symbol);
+    if (item && !$("qb-meta").textContent) {
+      $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
+    }
   } catch (e) {
-    // 目录未就绪/网络抖动 ≠ 未连接：给出准确文案并自动重试
+    if (seq !== searchSeq) return;
     $("inst-count").textContent = `加载中（${e.message}），5秒后重试`;
     clearTimeout(state.instPoll);
     state.instPoll = setTimeout(loadInstruments, 5000);
@@ -124,7 +146,6 @@ async function loadInstruments() {
 function renderContractList() {
   const list = $("contract-list");
   list.innerHTML = "";
-  // 全量渲染（按交易所过滤后通常几十到几百个；关键词搜索时更少）
   for (const item of state.instruments) {
     const row = document.createElement("div");
     row.className = "contract-item" + (item.symbol === state.symbol ? " active" : "");
@@ -141,20 +162,32 @@ function renderWatchlist() {
   const box = $("watchlist");
   box.innerHTML = "";
   for (const code of state.watchlist) {
-    if (code.toUpperCase().startsWith("KQD.")) continue; // 外盘主连不在国内评估范围
+    if (code.toUpperCase().startsWith("KQD.")) continue;
     const btn = document.createElement("button");
     btn.textContent = code.split(".")[1] || code;
     btn.title = code;
     btn.addEventListener("click", () => switchSymbol(code));
     box.appendChild(btn);
   }
+  updateFavButton();
 }
+
+function updateFavButton() {
+  const btn = $("qb-fav");
+  if (!btn) return;
+  const isFav = state.watchlist.includes(state.symbol);
+  btn.textContent = isFav ? "★" : "☆";
+  btn.classList.toggle("active", isFav);
+  btn.title = isFav ? "点击移出自选" : "点击加入自选";
+}
+
 function toggleWatch() {
   const idx = state.watchlist.indexOf(state.symbol);
   if (idx >= 0) state.watchlist.splice(idx, 1);
   else state.watchlist.push(state.symbol);
   localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   renderWatchlist();
+  updateFavButton();
 }
 
 /* ---------------- 图表 ---------------- */
@@ -204,22 +237,19 @@ const option = {
 };
 
 /**
- * 由 state.kline 构建三区图表的全部 series：
- * K线主区（蜡烛 + MA5/10/20/60 + 决策止损/目标 markLine）、
- * 成交量/持仓量区、MACD 区。
- * @returns {{series: Array, dates: string[]}} series 与横轴标签
+ * 由 state.kline 构建三区图表的全部 series
  */
 function buildSeries() {
   const k = state.kline;
   const closes = k.map((b) => b.close);
   const ohlc = k.map((b) => [b.open, b.close, b.low, b.high]);
   const dates = k.map((b) => fmtTime(b.datetime, state.period === 86400));
-  const vols = k.map((b, i) => ({
+  const vols = k.map((b) => ({
     value: b.volume, itemStyle: { color: b.close >= b.open ? COLORS.up : COLORS.down, opacity: 0.85 },
   }));
   const ois = k.map((b) => b.open_interest);
   const { dif, dea, hist } = macdSeries(closes);
-  const histBars = hist.map((v, i) => ({
+  const histBars = hist.map((v) => ({
     value: +v.toFixed(4),
     itemStyle: { color: v >= 0 ? COLORS.up : COLORS.down, opacity: 0.85 },
   }));
@@ -250,30 +280,31 @@ function buildSeries() {
 }
 
 /**
- * 渲染图表：增量 setOption（只更新数据与缩放窗口，默认显示最近 120 根）。
- * 注意绝不传 yAxis——首次 option 已定义组件，增量传 null 会让 ECharts 5.5
- * 崩溃（见 init 内注释）。
+ * 渲染图表：增量 setOption。
+ * @param {boolean} resetZoom 是否重置缩放窗口（切合约或初始化时为 true，定时刷新为 false 保留用户视窗）
  */
-function renderChart() {
+function renderChart(resetZoom = false) {
   if (!state.kline.length) return;
   const { series, dates } = buildSeries();
   const n = state.kline.length;
   const lastBars = Math.min(120, n);
   const start = Math.max(0, Math.round((1 - lastBars / n) * 100));
-  // 注意：不要传 yAxis（首次 setOption 传 yAxis: [null,...] 会让 ECharts 5.5 初始化
-  // yAxis 组件失败，导致 candlestick 初始化时 yAxisModel 为 undefined 而崩溃）。
-  chart.setOption({
+  const opt = {
     xAxis: [{ data: dates }, { data: dates }, { data: dates }],
-    dataZoom: [{ start, end: 100 }, { start, end: 100 }],
     series,
-  });
+  };
+  if (resetZoom) {
+    opt.dataZoom = [{ start, end: 100 }, { start, end: 100 }];
+  }
+  chart.setOption(opt);
 }
 
 /** 在主图上画最新价水平虚线（随每笔行情推送更新位置）。 */
 function updateLastPriceLine() {
   if (!state.quote || !state.kline.length || typeof state.quote.last !== "number") return;
+  const digits = getDigits(state.symbol);
   chart.setOption({
-    series: [{ markLine: { data: [{ yAxis: state.quote.last, label: { formatter: state.quote.last } }] } }],
+    series: [{ markLine: { data: [{ yAxis: state.quote.last, label: { formatter: fmtPrice(state.quote.last, digits) } }] } }],
   });
 }
 
@@ -286,21 +317,24 @@ chart.on("dblclick", () => {
 
 /* ---------------- 行情与盘口 ---------------- */
 /**
- * 渲染顶部报价头：最新价/涨跌/涨跌幅（红涨绿跌）、开高低收/量/仓/仓差，
- * 并同步主图最新价标线。
+ * 渲染顶部报价头
  */
 function renderQuoteBar() {
   const q = state.quote;
   if (!q) return;
+  const digits = getDigits(state.symbol);
   const up = q.last >= q.pre_close;
   const color = q.pre_close && q.last !== q.pre_close ? (up ? COLORS.up : COLORS.down) : COLORS.muted;
   const change = q.last - (q.pre_close || q.last);
   const pct = q.pre_close ? (change / q.pre_close * 100) : 0;
-  $("qb-last").textContent = fmtPrice(q.last, 2);
+  $("qb-last").textContent = fmtPrice(q.last, digits);
   $("qb-last").style.color = color;
-  $("qb-change").textContent = `${change >= 0 ? "+" : ""}${change.toFixed(2)}  ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  $("qb-change").textContent = `${change >= 0 ? "+" : ""}${change.toFixed(digits)}  ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
   $("qb-change").style.color = color;
-  const set = (id, v) => { $(id).textContent = fmtPrice(v, 2); $(id).style.color = v >= (q.pre_close || 0) ? COLORS.up : COLORS.down; };
+  const set = (id, v) => {
+    $(id).textContent = fmtPrice(v, digits);
+    $(id).style.color = v >= (q.pre_close || 0) ? COLORS.up : COLORS.down;
+  };
   set("m-open", q.open); set("m-high", q.high); set("m-low", q.low); set("m-preclose", q.pre_close);
   $("m-volume").textContent = fmtVol(q.volume);
   $("m-oi").textContent = fmtVol(q.open_interest);
@@ -310,37 +344,57 @@ function renderQuoteBar() {
   updateLastPriceLine();
 }
 
-/** 渲染五档盘口：卖五→卖一、最新价分隔条、买一→买五（红涨绿跌着色）。 */
+/** 渲染五档盘口：根据有效深度自适应标注，红涨绿跌依昨结价判定 */
 function renderDepth() {
   const q = state.quote;
   if (!q) return;
+  const digits = getDigits(state.symbol);
   const body = $("depth-body");
   body.innerHTML = "";
-  const ask = q.ask.slice().reverse(); // 卖五 → 卖一
+  const ask = (q.ask || []).slice().reverse(); // 卖N ... 卖1
+  const askLen = ask.length;
   ask.forEach((level, index) => {
     const row = document.createElement("div");
     row.className = "depth-row sell";
-    row.innerHTML = `<span>卖${5 - index}</span><span style="color:${COLORS.up}">${fmtPrice(level.price, 2)}</span><span class="d-vol">${fmtVol(level.volume)}</span>`;
+    const levelNum = askLen - index;
+    const pColor = q.pre_close && level.price != null
+      ? (level.price > q.pre_close ? COLORS.up : (level.price < q.pre_close ? COLORS.down : COLORS.muted))
+      : COLORS.up;
+    row.innerHTML = `<span>卖${levelNum}</span><span style="color:${pColor}">${fmtPrice(level.price, digits)}</span><span class="d-vol">${fmtVol(level.volume)}</span>`;
     body.appendChild(row);
   });
   const split = document.createElement("div");
   split.className = "depth-split";
   const lastColor = q.last >= (q.pre_close || q.last) ? COLORS.up : COLORS.down;
   split.style.color = lastColor;
-  split.textContent = fmtPrice(q.last, 2);
+  split.textContent = fmtPrice(q.last, digits);
   body.appendChild(split);
-  q.bid.forEach((level, index) => {
+  (q.bid || []).forEach((level, index) => {
     const row = document.createElement("div");
     row.className = "depth-row buy";
-    row.innerHTML = `<span>买${index + 1}</span><span style="color:${COLORS.down}">${fmtPrice(level.price, 2)}</span><span class="d-vol">${fmtVol(level.volume)}</span>`;
+    const levelNum = index + 1;
+    const pColor = q.pre_close && level.price != null
+      ? (level.price > q.pre_close ? COLORS.up : (level.price < q.pre_close ? COLORS.down : COLORS.muted))
+      : COLORS.down;
+    row.innerHTML = `<span>买${levelNum}</span><span style="color:${pColor}">${fmtPrice(level.price, digits)}</span><span class="d-vol">${fmtVol(level.volume)}</span>`;
     body.appendChild(row);
+  });
+}
+
+let quoteRenderScheduled = false;
+function scheduleQuoteRender() {
+  if (quoteRenderScheduled) return;
+  quoteRenderScheduled = true;
+  requestAnimationFrame(() => {
+    quoteRenderScheduled = false;
+    renderQuoteBar();
+    renderDepth();
   });
 }
 
 /* ---------------- 决策面板 ---------------- */
 /**
- * 渲染右侧决策面板：方向/评分条/入场止损目标/手数/风险额/评估依据。
- * pending 或数据不足时展示提示文案而非空面板。
+ * 渲染右侧决策面板
  */
 function renderDecision() {
   const body = $("decision-body");
@@ -349,15 +403,16 @@ function renderDecision() {
     body.innerHTML = `<div class="dc-note">${d && d.message ? d.message : "等待行情数据…"}</div>`;
     return;
   }
+  const digits = getDigits(state.symbol);
   const dirColor = d.direction === "做多" ? COLORS.up : d.direction === "做空" ? COLORS.down : COLORS.amber;
   const total = Math.max(1, d.score_long + d.score_short);
   const longPct = (d.score_long / total * 100).toFixed(1);
   const shortPct = (d.score_short / total * 100).toFixed(1);
   const rows = [
-    ["入场参考", fmtPrice(d.entry, 2), null],
-    ["止损", fmtPrice(d.stop, 2), d.stop != null && d.entry != null ? (d.stop > d.entry ? COLORS.down : COLORS.up) : null],
-    ["目标一", fmtPrice(d.target1, 2), null],
-    ["目标二", fmtPrice(d.target2, 2), null],
+    ["入场参考", fmtPrice(d.entry, digits), null],
+    ["止损", fmtPrice(d.stop, digits), d.stop != null && d.entry != null ? (d.stop > d.entry ? COLORS.down : COLORS.up) : null],
+    ["目标一", fmtPrice(d.target1, digits), null],
+    ["目标二", fmtPrice(d.target2, digits), null],
     ["目标点数", d.target_points != null ? `${d.target_points} 点` : "--", null],
     ["建议手数", d.contracts != null ? `${d.contracts} 手` : "--", null],
     ["预计止损金额", d.risk_amount != null ? `¥${fmtVol(d.risk_amount)}（${d.risk_percent}%）` : "--", null],
@@ -384,8 +439,7 @@ function renderDecision() {
 
 /* ---------------- 天勤账户登录 ---------------- */
 /**
- * 启动时检查登录态：未配置凭据弹出登录弹窗（顶部按钮显示"账户未登录"）。
- * @returns {Promise<boolean|undefined>} 已配置返回 true
+ * 启动时检查登录态
  */
 async function checkAuth() {
   try {
@@ -393,6 +447,10 @@ async function checkAuth() {
     const btn = $("account-btn");
     btn.textContent = auth.configured ? `账户 ${auth.account}` : "账户未登录";
     btn.style.color = auth.configured ? COLORS.muted : COLORS.amber;
+    const logoutBtn = $("auth-logout");
+    if (logoutBtn) {
+      logoutBtn.classList.toggle("hidden", !auth.configured);
+    }
     if (!auth.configured) showAuthModal("请输入天勤账户以开始接收行情");
     return auth.configured;
   } catch (e) { /* 网关未启动 */ }
@@ -410,8 +468,7 @@ function hideAuthModal() {
 }
 
 /**
- * 登录提交：POST /api/v1/auth 保存凭据（桌面端进 Windows 凭据管理器），
- * 成功后关闭弹窗并重载全部数据流；失败在弹窗内联展示原因。
+ * 登录提交
  */
 async function saveAuth() {
   const account = $("auth-account").value.trim();
@@ -429,26 +486,38 @@ async function saveAuth() {
     hideAuthModal();
     $("auth-password").value = "";
     await checkAuth();
-    loadStatus(); loadInstruments(); loadKline(); loadDecision();
+    loadStatus(); loadInstruments(); loadKline(true); loadDecision();
   } catch (e) {
     $("auth-error").textContent = e.message;
   }
 }
 
+/**
+ * 退出登录
+ */
+async function logoutAuth() {
+  try {
+    await fetchJSON("/api/v1/auth", { method: "DELETE" });
+  } catch (e) {}
+  hideAuthModal();
+  await checkAuth();
+  loadStatus();
+}
+
 /* ---------------- 数据拉取 ---------------- */
-/** 拉取 K 线（默认 400 根，15 秒轮询 + 切合约/切周期触发）并渲染图表。 */
-async function loadKline() {
+/** 拉取 K 线并渲染图表。 */
+async function loadKline(resetZoom = false) {
   try {
     const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`, null, 45000);
     state.kline = data.bars || [];
-    renderChart();
+    renderChart(resetZoom);
     updateLastPriceLine();
   } catch (e) {
     $("chart-hint").textContent = `K线加载失败：${e.message}`;
   }
 }
 
-/** 拉取决策评估（6 秒轮询；失败在面板内联展示，不弹错误）。 */
+/** 拉取决策评估 */
 async function loadDecision() {
   const reqId = ++state.decisionReq, symbol = state.symbol;
   try {
@@ -470,7 +539,7 @@ window.addEventListener("decisionprofilechange", () => {
   loadDecision();
 });
 
-/** 轮询网关状态（15 秒）：天勤连接状态与 WS 连接状态两行指示。 */
+/** 轮询网关状态 */
 async function loadStatus() {
   try {
     const st = await fetchJSON("/api/v1/status");
@@ -483,10 +552,6 @@ async function loadStatus() {
 }
 
 /* ---------------- WebSocket ---------------- */
-/**
- * 行情 WebSocket：onopen 订阅当前合约；quote/quote_snapshot 更新报价头/盘口/
- * 最新价标线并做端到端延迟统计；订阅失败 5 秒重试；断线 3 秒重连（页面隐藏时不连）。
- */
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/market`);
@@ -502,7 +567,6 @@ function connectWS() {
     if (msg.type === "quote" || msg.type === "quote_snapshot") {
       if (msg.symbol !== state.symbol) return;
       state.quote = msg.data;
-      // 端到端延迟埋点（P0-200ms）：服务端发送时刻 msg.ts → 浏览器收到
       let latencyText = "";
       if (msg.ts) {
         const latMs = Math.max(0, Date.now() / 1000 - msg.ts) * 1000;
@@ -513,11 +577,9 @@ function connectWS() {
         }
         latencyText = ` · 端到端 ${latMs.toFixed(0)}ms`;
       }
-      renderQuoteBar();
-      renderDepth();
+      scheduleQuoteRender();
       $("st-updated").textContent = `更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}${latencyText}`;
     } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
-      // 订阅失败（如连接预热期）：5 秒后自动重试
       setTimeout(() => {
         if (state.ws && state.ws.readyState === 1) {
           state.ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
@@ -537,16 +599,23 @@ function connectWS() {
 }
 
 /* ---------------- 合约切换 ---------------- */
-/**
- * 切换当前合约（列表/自选按钮点击）：立即用空数据占位渲染避免旧合约残留，
- * 重新订阅、拉取 K 线与决策，并从目录取合约元信息（名称/乘数）展示。
- */
 async function switchSymbol(symbol) {
   if (symbol === state.symbol && state.kline.length) return;
   state.symbol = symbol;
   state.quote = null;
   state.decision = null;
+  state.kline = [];
+  chart.setOption({
+    xAxis: [{ data: [] }, { data: [] }, { data: [] }],
+    series: [
+      { data: [], markLine: { data: [] } },
+      { data: [] }, { data: [] }, { data: [] }, { data: [] },
+      { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }
+    ]
+  });
   $("qb-title").textContent = symbol;
+  $("st-symbol").textContent = `合约：${symbol}`;
+  updateFavButton();
   DecisionControls.renderMeta(null);
   $("qb-meta").textContent = "";
   renderContractList();
@@ -556,7 +625,7 @@ async function switchSymbol(symbol) {
   if (state.ws && state.ws.readyState === 1) {
     state.ws.send(JSON.stringify({ action: "subscribe", symbols: [symbol] }));
   }
-  await loadKline();
+  await loadKline(true);
   loadDecision();
   const item = state.instruments.find((i) => i.symbol === symbol);
   if (item) $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
@@ -569,7 +638,7 @@ $("periods").addEventListener("click", (e) => {
   document.querySelectorAll("#periods button").forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
   state.period = Number(btn.dataset.period);
-  loadKline();
+  loadKline(true);
 });
 
 $("exchange-tabs").addEventListener("click", (e) => {
@@ -581,34 +650,31 @@ $("exchange-tabs").addEventListener("click", (e) => {
   loadInstruments();
 });
 
+const qbFav = $("qb-fav");
+if (qbFav) qbFav.addEventListener("click", toggleWatch);
 document.querySelector(".brand").addEventListener("click", toggleWatch);
 
 $("account-btn").addEventListener("click", () => showAuthModal());
 $("auth-save").addEventListener("click", saveAuth);
 $("auth-cancel").addEventListener("click", hideAuthModal);
+const authLogoutBtn = $("auth-logout");
+if (authLogoutBtn) authLogoutBtn.addEventListener("click", logoutAuth);
 $("auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveAuth(); });
 
-/**
- * 启动序列：必须先 chart.setOption(option) 应用完整初始配置（grid/xAxis/yAxis
- * 组件定义），否则后续增量 setOption 会因缺 yAxis 组件而崩溃；
- * 然后并行拉起状态/目录/K线/决策与 WS，挂三组轮询。
- */
 async function init() {
   renderWatchlist();
-  // 必须先应用初始 option（含 grid/xAxis/yAxis 定义）：renderChart 的 setOption 是
-  // 增量更新，若首次调用就缺 yAxis，ECharts 不会自动创建 yAxis 组件，
-  // candlestick 初始化时 yAxisModel 为 undefined 会崩溃。
+  updateFavButton();
   chart.setOption(option);
-  // 互不阻塞：状态、合约目录、K线、决策并行加载，避免单点卡死整页。
   checkAuth();
   loadStatus();
   loadInstruments();
   $("qb-title").textContent = state.symbol;
-  loadKline();
+  $("st-symbol").textContent = `合约：${state.symbol}`;
+  loadKline(true);
   loadDecision();
   connectWS();
   setInterval(loadDecision, 6000);
-  setInterval(loadKline, 15000);
+  setInterval(() => loadKline(false), 15000);
   setInterval(loadStatus, 15000);
   window.addEventListener("resize", () => chart.resize());
 }

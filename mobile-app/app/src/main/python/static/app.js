@@ -63,6 +63,7 @@ function showScreen(name) {
   state.screen = name;
   if (name === "kline") { setTimeout(() => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); }, 60); }
   if (name === "quotes") renderWatchlist();
+  if (name === "depth") renderDepth();
 }
 
 /* ---------- 行情主页 ---------- */
@@ -112,27 +113,49 @@ function appendSearchPage() {
   const start = state.searchPage * state.searchPageSize;
   if (start >= state.instruments.length) {
     // 全部渲染完：去掉滚动监听，避免空加载
-    if (state._searchScroll) $("resultlist").removeEventListener("scroll", state._searchScroll);
+    if (state._searchScroll) $("screen-quotes").removeEventListener("scroll", state._searchScroll);
     return;
   }
   const slice = state.instruments.slice(start, start + state.searchPageSize);
   for (const it of slice) {
+    const isWatched = state.watchlist.includes(it.symbol);
     const row = document.createElement("div");
     row.className = "watch-row";
     row.innerHTML = `<div class="l"><div class="nm">${it.name || it.instrument_id}</div>` +
-      `<div class="cd num">${it.symbol}</div></div><div class="p"><div class="last num muted">›</div></div>`;
-    row.addEventListener("click", () => switchSymbol(it.symbol));
+      `<div class="cd num">${it.symbol}</div></div>` +
+      `<div class="p"><span class="star-btn ${isWatched ? 'cyan' : 'muted'}" data-sym="${it.symbol}" style="font-size:18px;padding:4px 8px;">${isWatched ? '★' : '☆'}</span></div>`;
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".star-btn")) return;
+      switchSymbol(it.symbol, false);
+    });
+    const starBtn = row.querySelector(".star-btn");
+    starBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sym = it.symbol;
+      const idx = state.watchlist.indexOf(sym);
+      if (idx >= 0) state.watchlist.splice(idx, 1);
+      else state.watchlist.push(sym);
+      localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
+      starBtn.textContent = state.watchlist.includes(sym) ? "★" : "☆";
+      starBtn.className = `star-btn ${state.watchlist.includes(sym) ? 'cyan' : 'muted'}`;
+      if (state.symbol === sym) {
+        $("k-star").textContent = state.watchlist.includes(sym) ? "★" : "☆";
+        $("k-star").className = state.watchlist.includes(sym) ? "cyan" : "muted";
+      }
+      renderWatchlist();
+      sendSubscribe();
+    });
     box.appendChild(row);
   }
   state.searchPage += 1;
-  // 首次绑定滚动监听
+  // 首次绑定滚动监听（监听 .screen 滚动容器）
   if (!state._searchScroll) {
     state._searchScroll = () => {
       if (state.screen !== "quotes") return;
-      const el = $("resultlist");
+      const el = $("screen-quotes");
       if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) appendSearchPage();
     };
-    $("resultlist").addEventListener("scroll", state._searchScroll);
+    $("screen-quotes").addEventListener("scroll", state._searchScroll);
   }
 }
 
@@ -144,31 +167,35 @@ function appendSearchPage() {
  */
 function initCharts() {
   try {
-  state.chart = echarts.init($("k-chart"));
-  state.macdChart = echarts.init($("k-macd"));
-  state.chart.setOption({
-    animation: false, backgroundColor: "transparent",
-    // 缺陷 G：progressive 降采样——超过阈值后 ECharts 分块渲染，避免一次性
-    // 为全部 K 线分配 tile 内存（手机 WebView 长会话后主图只剩坐标轴的根因）。
-    progressive: 200, progressiveThreshold: 500,
-    grid: { left: 8, right: 56, top: 10, bottom: 10 },
-    xAxis: { type: "category", data: [], axisLine: { lineStyle: { color: "#262e3a" } }, axisLabel: { show: false } },
-    yAxis: { scale: true, position: "right", splitLine: { lineStyle: { color: "#161c24" } },
-             axisLabel: { color: "#8b96a3", fontSize: 9 } },
-    dataZoom: [{ type: "inside", xAxisIndex: 0 }],
-    series: [
-      { type: "candlestick", data: [], itemStyle: { color: UP, color0: DOWN, borderColor: UP, borderColor0: DOWN },
-        progressive: 200, progressiveThreshold: 500 },
-      { type: "line", data: [], symbol: "none", lineStyle: { width: 1, color: AMBER } },
-    ],
-  });
-  state.macdChart.setOption({
-    animation: false, backgroundColor: "transparent",
-    grid: { left: 8, right: 56, top: 6, bottom: 6 },
-    xAxis: { type: "category", data: [], axisLabel: { show: false } },
-    yAxis: { position: "right", splitLine: { show: false }, axisLabel: { color: "#8b96a3", fontSize: 9 } },
-    series: [{ type: "bar", data: [] }],
-  });
+    state.chart = echarts.init($("k-chart"));
+    state.macdChart = echarts.init($("k-macd"));
+    state.chart.setOption({
+      animation: false, backgroundColor: "transparent",
+      progressive: 200, progressiveThreshold: 500,
+      grid: { left: 8, right: 56, top: 10, bottom: 10 },
+      xAxis: { type: "category", data: [], axisLine: { lineStyle: { color: "#262e3a" } }, axisLabel: { show: false } },
+      yAxis: { scale: true, position: "right", splitLine: { lineStyle: { color: "#161c24" } },
+               axisLabel: { color: "#8b96a3", fontSize: 9 } },
+      dataZoom: [{ type: "inside", xAxisIndex: 0 }],
+      series: [
+        { type: "candlestick", data: [], itemStyle: { color: UP, color0: DOWN, borderColor: UP, borderColor0: DOWN },
+          progressive: 200, progressiveThreshold: 500 },
+        { type: "line", data: [], symbol: "none", lineStyle: { width: 1, color: AMBER } },
+      ],
+    });
+    state.macdChart.setOption({
+      animation: false, backgroundColor: "transparent",
+      grid: { left: 8, right: 56, top: 6, bottom: 6 },
+      xAxis: { type: "category", data: [], axisLabel: { show: false } },
+      yAxis: { position: "right", splitLine: { show: false }, axisLabel: { color: "#8b96a3", fontSize: 9 } },
+      dataZoom: [{ type: "inside", xAxisIndex: 0 }],
+      series: [
+        { type: "bar", data: [] },
+        { type: "line", data: [], symbol: "none", lineStyle: { width: 1, color: "#e8edf2" } },
+        { type: "line", data: [], symbol: "none", lineStyle: { width: 1, color: AMBER } },
+      ],
+    });
+    echarts.connect([state.chart, state.macdChart]);
   } catch (e) { console.log('initCharts fail:', e); }
 }
 
@@ -193,18 +220,27 @@ function renderKline() {
     xAxis: { data: dates },
     series: [{ data: ohlc }, { data: ma(20) }],
   }, { lazyReplace: true });
-  // MACD 副图
+  // MACD 副图 (标准 EMA12/26 及 DEA9 平滑)
   const dif = [], dea = [], hist = [];
   let f = closes[0], sl = closes[0];
   const fk = 2 / 13, sk = 2 / 27;
-  for (const c of closes) {
-    f = (c - f) * fk + f; sl = (c - sl) * sk + sl;
-    dif.push(f - sl); dea.push(dif[dif.length - 1] * 0.8 + dea.slice(-1)[0] * 0.2 || dif[0]);
+  for (let i = 0; i < closes.length; i++) {
+    const c = closes[i];
+    f = (c - f) * fk + f;
+    sl = (c - sl) * sk + sl;
+    const d = f - sl;
+    dif.push(d);
+    const prevDea = i === 0 ? d : dea[i - 1];
+    dea.push(d * 0.2 + prevDea * 0.8);
   }
   for (let i = 0; i < closes.length; i++) hist.push((dif[i] - dea[i]) * 2);
   state.macdChart.setOption({
     xAxis: { data: dates },
-    series: [{ data: hist.map(v => ({ value: v, itemStyle: { color: v >= 0 ? UP : DOWN } })) }],
+    series: [
+      { data: hist.map(v => ({ value: v, itemStyle: { color: v >= 0 ? UP : DOWN } })) },
+      { data: dif },
+      { data: dea },
+    ],
   }, { lazyReplace: true });
 }
 /**
@@ -216,6 +252,48 @@ function fmtTime(ms) {
   return state.period >= 86400
     ? `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, "0")}`
     : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/* ---------- 五档盘口 ---------- */
+function renderDepth() {
+  const body = $("depth-body");
+  if (!body) return;
+  const q = state.quote;
+  $("d-code").textContent = state.symbol;
+  $("d-name").textContent = ($("k-name") && $("k-name").textContent !== "--") ? $("k-name").textContent : state.symbol;
+  if (!q) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">暂无盘口数据</div>';
+    return;
+  }
+  const digits = 2;
+  let html = "";
+  const asks = q.ask || [];
+  for (let i = asks.length - 1; i >= 0; i--) {
+    const item = asks[i];
+    if (!item) continue;
+    const priceCls = colorBy(item.price, q.pre_close);
+    html += `<div class="depth-row"><span class="k">卖${i + 1}</span><span class="val num ${priceCls}">${fmt(item.price, digits)}</span><span class="vol num">${fmt(item.volume, 0)}</span></div>`;
+  }
+  if (!asks.length) {
+    for (let i = 5; i >= 1; i--) {
+      html += `<div class="depth-row"><span class="k">卖${i}</span><span class="val num">--</span><span class="vol num">--</span></div>`;
+    }
+  }
+  const midCls = colorBy(q.last, q.pre_close);
+  html += `<div class="depth-mid num ${midCls}">${fmt(q.last, digits)}</div>`;
+  const bids = q.bid || [];
+  for (let i = 0; i < bids.length; i++) {
+    const item = bids[i];
+    if (!item) continue;
+    const priceCls = colorBy(item.price, q.pre_close);
+    html += `<div class="depth-row"><span class="k">买${i + 1}</span><span class="val num ${priceCls}">${fmt(item.price, digits)}</span><span class="vol num">${fmt(item.volume, 0)}</span></div>`;
+  }
+  if (!bids.length) {
+    for (let i = 1; i <= 5; i++) {
+      html += `<div class="depth-row"><span class="k">买${i}</span><span class="val num">--</span><span class="vol num">--</span></div>`;
+    }
+  }
+  body.innerHTML = html;
 }
 
 /* ---------- 行情渲染 ---------- */
@@ -241,6 +319,7 @@ function renderQuote() {
   $("ds-bid").textContent = b1 ? `${fmt(b1.price)} · ${fmt(b1.volume, 0)}` : "--";
   $("ds-ask").textContent = a1 ? `${fmt(a1.price)} · ${fmt(a1.volume, 0)}` : "--";
   $("ds-last").textContent = fmt(q.last);
+  if (state.screen === "depth") renderDepth();
   // 自选行
   const wl = $("w-" + q.symbol), wc = $("wc-" + q.symbol);
   if (wl) wl.textContent = fmt(q.last);
@@ -276,9 +355,20 @@ function renderDecision(d) {
   $("dd-score").textContent = `多 ${d.score_long} · 空 ${d.score_short} · 总分 ${d.score}`;
   const total = Math.max(1, d.score_long + d.score_short);
   $("dd-bar-l").style.width = (d.score_long / total * 100) + "%";
+  const symEl = $("dd-sym");
+  if (symEl) {
+    const inst = state.instruments.find(x => x.symbol === state.symbol);
+    const name = inst ? (inst.name || inst.instrument_id) : state.symbol.split(".")[1];
+    symEl.textContent = `${name} (${state.symbol})`;
+  }
   for (const [id, key] of [["dd-entry", "entry"], ["dd-stop", "stop"], ["dd-t1", "target1"],
-       ["dd-t2", "target2"], ["dd-lots", "contracts"]])
-    $(id).textContent = d[key] == null ? "待信号" : fmt(d[key]);
+       ["dd-t2", "target2"], ["dd-lots", "contracts"]]) {
+    if (key === "contracts" && d.contracts === 0) {
+      $(id).textContent = d.is_trading === false ? "非交易时段" : "0 手 (观望/超风险)";
+    } else {
+      $(id).textContent = d[key] == null ? "待信号" : fmt(d[key]);
+    }
+  }
   $("dd-risk").textContent = d.risk_amount == null ? "待信号" : `¥${fmt(d.risk_amount, 0)} (${d.risk_percent}%)`;
   $("dd-whycount").textContent = `评估依据 · ${(d.rationale || []).length} 条`;
   $("dd-why").innerHTML = (d.rationale || []).map(r => `<li>${DecisionControls.escape(r)}</li>`).join("") || "<li>无</li>";
@@ -359,19 +449,21 @@ async function loadInstruments(keyword = "") {
       $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">合约目录下载中，下载完成后自动显示搜索结果…</div></div></div>`;
     return;
   }
-  if (state.instrumentsLoading) return;  // 防止重复/并发拉取导致报错叠加
+  state.searchSeq = (state.searchSeq || 0) + 1;
+  const reqSeq = state.searchSeq;
   state.instrumentsLoading = true;
   try {
     const d = await api(`/api/v1/instruments${keyword ? "?keyword=" + encodeURIComponent(keyword) : ""}`);
+    if (reqSeq !== state.searchSeq) return;
     state.instruments = d.items || [];
     renderSearch();
   } catch (e) {
-    // 只显示一次，不重复堆积；不自动反复重试（避免 503 + abort 两个报错叠一起）
+    if (reqSeq !== state.searchSeq) return;
     if (state.screen === "quotes")
       $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">加载合约列表失败（${e.message}），可切换页面后重试</div></div></div>`;
     console.log("instruments:", e.message);
   } finally {
-    state.instrumentsLoading = false;
+    if (reqSeq === state.searchSeq) state.instrumentsLoading = false;
   }
 }
 /**
@@ -385,6 +477,7 @@ async function loadStatus() {
     $("sb-state").style.color = st.connected ? DOWN : AMBER;
     $("me-account").textContent = "账户 " + (st.account || "--");
     $("me-route").textContent = st.route || "--";
+    if ($("me-ds")) $("me-ds").textContent = (st.route || "C 直连版") + " · 天勤行情";
     $("q-route").textContent = st.route || "";
     state.catalogReady = !!st.catalog_ready;
     // 合约目录加载中提示（用户能感知"导入未完成"）
@@ -411,6 +504,12 @@ async function loadStatus() {
  * （页面不可见时不重连，切回前台由 visibilitychange 统一处理）。
  */
 function connectWS() {
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  if (state.ws) {
+    try { state.ws.onclose = null; state.ws.close(); } catch {}
+  }
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`);
   state.ws = ws;
   ws.onopen = () => {
@@ -503,22 +602,28 @@ function renderWatchlist() {
  * 首次查看会自动加入自选并持久化；用缓存价格先回填报价头避免闪 "--"；
  * 切屏到 K线并重新拉取 K 线与决策；重新订阅（当前 + 全部自选）。
  */
-function switchSymbol(symbol) {
+function switchSymbol(symbol, autoWatch = false) {
   if (symbol === state.symbol) { showScreen("kline"); return; }
   state.symbol = symbol;
   state.decision = null; state.kline = [];
   DecisionControls.renderMeta(null);
-  if (!state.watchlist.includes(symbol)) {
+  if (autoWatch && !state.watchlist.includes(symbol)) {
     state.watchlist.push(symbol);
     localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   }
   // 有缓存价格就先回填，避免切换瞬间报价头闪 --（后续实时推送会覆盖）
   state.quote = state.quotes[symbol] || null;
   if (state.quote) renderQuote();
-  $("k-name").textContent = symbol.split(".")[1];
+  const inst = state.instruments.find(x => x.symbol === symbol);
+  const name = inst ? (inst.name || inst.instrument_id) : symbol.split(".")[1];
+  $("k-name").textContent = name;
   $("k-code").textContent = symbol;
   $("d-code").textContent = symbol;
-  $("d-name").textContent = symbol;
+  $("d-name").textContent = name;
+  const symEl = $("dd-sym");
+  if (symEl) symEl.textContent = `${name} (${symbol})`;
+  $("k-star").textContent = state.watchlist.includes(symbol) ? "★" : "☆";
+  $("k-star").className = state.watchlist.includes(symbol) ? "cyan" : "muted";
   showScreen("kline");
   // 切换合约时重新订阅当前+全部自选，保证价格持续更新
   sendSubscribe();
@@ -656,6 +761,82 @@ $("sheet-close").addEventListener("click", closeHelpSheet);
 $("sheet-mask").addEventListener("click", closeHelpSheet);
 document.querySelector("#screen-login .hint .cyan").addEventListener("click",
   () => window.open("https://www.tqsdk.com", "_blank"));
+if ($("sb-time")) {
+  $("sb-time").addEventListener("click", () => {
+    const d = new Date();
+    const days = ["日", "一", "二", "三", "四", "五", "六"];
+    const dateStr = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 星期${days[d.getDay()]}`;
+    const session = getTradingSessionText(d);
+    showToast(`📅 ${dateStr}\n⏰ 期货时段：${session}\n· 日盘：09:00-11:30  13:30-15:00\n· 夜盘：21:00-02:30`);
+  });
+}
+if ($("sb-state")) {
+  $("sb-state").addEventListener("click", () => {
+    showToast("正在刷新连接与数据…");
+    loadStatus();
+    if (!state.ws || state.ws.readyState !== 1) connectWS();
+  });
+}
+
+function getTradingSessionText(d) {
+  const day = d.getDay();
+  if (day === 0 || day === 6) return "休市";
+  const mins = d.getHours() * 60 + d.getMinutes();
+  // 日盘: 9:00-10:15 (540-615), 10:30-11:30 (630-690), 13:30-15:00 (810-900)
+  if ((mins >= 540 && mins <= 615) || (mins >= 630 && mins <= 690) || (mins >= 810 && mins <= 900)) {
+    return "日盘";
+  }
+  // 夜盘: 21:00-24:00 (1260-1440), 0:00-2:30 (0-150)
+  if (mins >= 1260 || mins <= 150) {
+    if (day === 6 && mins > 150) return "休市";
+    return "夜盘";
+  }
+  if (mins < 540) return "盘前";
+  if (mins > 615 && mins < 630) return "中歇";
+  if (mins > 690 && mins < 810) return "午休";
+  if (mins > 900 && mins < 1260) return "盘后";
+  return "休市";
+}
+
+let toastTimer = null;
+function showToast(text, duration = 3200) {
+  let toast = $("app-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "app-toast";
+    toast.className = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.classList.remove("show");
+  }, duration);
+}
+
+function updateClock() {
+  const d = new Date();
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  const session = getTradingSessionText(d);
+  if ($("sb-time")) {
+    $("sb-time").textContent = `${h}:${m}:${s} · ${session}`;
+  }
+}
+
+window.navigateBack = function() {
+  if (state.screen === "kline" || state.screen === "decision" || state.screen === "me") {
+    showScreen("quotes");
+    return true;
+  } else if (state.screen === "depth") {
+    showScreen("kline");
+    return true;
+  }
+  return false;
+};
+
 window.addEventListener("resize", () => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); });
 
 /* ---------- 启动 ---------- */
@@ -671,6 +852,8 @@ async function init() {
   renderWatchlist();
   syncPeriodUi();
   showScreen("quotes");
+  updateClock();
+  setInterval(updateClock, 1000);
   // 未配置凭据时 checkAuth 会弹出登录层并盖在 app-main 之上；
   // 无论是否配置都显示主界面骨架，让状态条/路由信息可见（登录层保留在未配置时覆盖）。
   await checkAuth();

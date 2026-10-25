@@ -19,7 +19,18 @@ const fs = require("fs");
 const { spawn } = require("child_process");
 const { resolvePythonCandidates, createTailBuffer } = require("./backend");
 
-const SERVER_URL = "http://127.0.0.1:8000";
+function getServerUrl() {
+  try {
+    const raw = fs.readFileSync(path.join(PROJECT_DIR, "config.json"), "utf8");
+    const cfg = JSON.parse(raw);
+    const host = (cfg.server && cfg.server.host) || "127.0.0.1";
+    const port = (cfg.server && cfg.server.port) || 8000;
+    return `http://${host}:${port}`;
+  } catch {
+    return "http://127.0.0.1:8000";
+  }
+}
+const SERVER_URL = getServerUrl();
 const MY_ROUTE = "C 直连版";   // 本构建的路线标识
 const PROJECT_DIR = path.join(__dirname, "..");          // 项目根目录（electron/ 的上一级）
 const LAUNCHER = path.join(PROJECT_DIR, "launcher.py");  // 后端启动脚本
@@ -40,6 +51,20 @@ const backendTail = createTailBuffer(40);
 // ---------------------------------------------------------------------
 // 小工具
 // ---------------------------------------------------------------------
+
+function killProcess(child) {
+  if (!child || child.killed) return;
+  if (process.platform === "win32") {
+    try {
+      const { execSync } = require("child_process");
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: "ignore" });
+    } catch {
+      try { child.kill(); } catch {}
+    }
+  } else {
+    try { child.kill(); } catch {}
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -147,7 +172,7 @@ async function ensureServer() {
     }
     if (child.exitCode === null) {
       console.log("[ZA量化] 后端启动超时（30 秒），终止子进程");
-      child.kill();
+      killProcess(child);
     }
     lastError = `${candidate.cmd}: 启动后 30 秒内未就绪（详见 ${BACKEND_LOG}）`;
   }
@@ -244,7 +269,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   if (backendProcess) {
     console.log("[ZA量化] 关闭后端服务");
-    backendProcess.kill();   // 给子进程发"终止"信号
+    killProcess(backendProcess);   // 给子进程发"终止"信号
     backendProcess = null;
   }
 });

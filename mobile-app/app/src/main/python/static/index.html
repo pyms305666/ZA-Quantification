@@ -22,16 +22,16 @@
 
 <!-- 主框架 -->
 <div id="app-main" class="hidden">
-  <div class="statusbar"><span id="sb-time">9:41</span><span class="icons" id="sb-state">● 待连接</span></div>
+  <div class="statusbar"><span id="sb-time">--:--:--</span><span class="icons" id="sb-state">● 待连接</span></div>
 
   <!-- ① 行情主页 -->
   <section id="screen-quotes" class="screen">
     <div class="nav"><span class="title">ZA量化</span><span class="sub" id="q-route">C 直连版</span>
       <span class="right"><span class="dot ok"></span><span style="font-size:17px" onclick="showScreen('me')">👤</span></span></div>
     <div class="idx-strip">
-      <div class="idx-card"><div class="n">螺纹2610</div><div class="v num up" id="idx-rb">--</div><div class="c up" id="idx-rb-c">--</div></div>
-      <div class="idx-card"><div class="n">黄金2612</div><div class="v num down" id="idx-au">--</div><div class="c down" id="idx-au-c">--</div></div>
-      <div class="idx-card"><div class="n">豆粕2609</div><div class="v num" id="idx-m">--</div><div class="c" id="idx-m-c">--</div></div>
+      <div class="idx-card" onclick="switchSymbol('SHFE.rb2610')"><div class="n">螺纹2610</div><div class="v num up" id="idx-rb">--</div><div class="c up" id="idx-rb-c">--</div></div>
+      <div class="idx-card" onclick="switchSymbol('SHFE.au2612')"><div class="n">黄金2612</div><div class="v num down" id="idx-au">--</div><div class="c down" id="idx-au-c">--</div></div>
+      <div class="idx-card" onclick="switchSymbol('DCE.m2609')"><div class="n">豆粕2609</div><div class="v num" id="idx-m">--</div><div class="c" id="idx-m-c">--</div></div>
     </div>
     <div id="catalog-tip" class="catalog-tip hidden"></div>
     <div class="sec">自选 <span class="muted" style="font-weight:400;font-size:11px;margin-left:6px" id="q-count"></span></div>
@@ -87,7 +87,9 @@
 
   <!-- ④ 决策评估 -->
   <section id="screen-decision" class="screen hidden">
-    <div class="nav"><span class="title">决策评估</span><span class="right muted" style="font-size:12px" onclick="loadDecision()">↻</span></div>
+    <div class="nav"><span class="back" onclick="showScreen('kline')">‹</span>
+      <div><div class="title">决策评估</div><div class="sub num" id="dd-sym">--</div></div>
+      <span class="right muted" style="font-size:16px" onclick="loadDecision()">↻</span></div>
     <div id="decision-controls"></div>
     <div id="decision-metadata" aria-live="polite"></div>
     <div class="dc-card">

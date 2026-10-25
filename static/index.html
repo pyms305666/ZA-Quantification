@@ -27,7 +27,10 @@
   <!-- 报价头 -->
   <section id="quote-bar">
     <div class="qb-name">
-      <div id="qb-title">--</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="qb-title">--</span>
+        <button id="qb-fav" class="fav-btn" title="点击加入/移出自选">☆</button>
+      </div>
       <div id="qb-meta" class="muted"></div>
     </div>
     <div class="qb-price">
@@ -87,12 +90,13 @@
   <!-- 天勤账户登录弹窗：凭据只保存在本机（.tqsdk/credentials.json，已被 git 忽略） -->
   <div id="auth-modal" class="modal hidden">
     <div class="modal-box">
-      <h3>天勤账户登录</h3>
+      <h3>天勤账户设置</h3>
       <p class="muted">免费注册：www.tqsdk.com · 凭据仅保存在本机，不会提交到代码仓库</p>
       <input id="auth-account" type="text" placeholder="天勤账号（手机号/邮箱）" autocomplete="username">
       <input id="auth-password" type="password" placeholder="密码" autocomplete="current-password">
       <div id="auth-error" class="auth-error"></div>
       <div class="modal-actions">
+        <button id="auth-logout" class="danger hidden">退出登录</button>
         <button id="auth-cancel" class="ghost">取消</button>
         <button id="auth-save" class="primary">保存并连接</button>
       </div>

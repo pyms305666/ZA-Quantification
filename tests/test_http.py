@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from api.http import create_app
 
@@ -41,6 +41,24 @@ class StatusEndpointTests(unittest.TestCase):
         self.assertTrue(body["catalog_ready"])
         self.assertFalse(body["catalog_complete"])
         self.assertTrue(body["catalog_loading"])
+
+    def test_delete_auth_clears_credentials_and_resets_client(self):
+        mock_client = MagicMock()
+        services = SimpleNamespace(client=mock_client)
+        with patch("api.http.build_services", return_value=services):
+            app = create_app(SimpleNamespace())
+        api_router = next(
+            route.original_router for route in app.routes
+            if any(getattr(child, "path", None) == "/api/v1/auth"
+                   for child in getattr(getattr(route, "original_router", None), "routes", []))
+        )
+        delete_route = next(route for route in api_router.routes
+                            if route.path == "/api/v1/auth" and "DELETE" in route.methods)
+        with patch("api.http.clear_credentials") as mock_clear:
+            body = delete_route.endpoint(services)
+            self.assertEqual(body, {"ok": True})
+            mock_clear.assert_called_once()
+            mock_client.set_credentials.assert_called_once_with("", "")
 
 
 if __name__ == "__main__":
