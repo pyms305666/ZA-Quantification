@@ -34,7 +34,7 @@ cd mobile-app
 
 ## release 签名（V1.1.3 起）
 
-当前正式版本 V1.2.1（`versionCode=4`），发布附件为 `ZAQuant-Mobile-v1.2.1.apk`。同签名可覆盖升级 V1.1.3 并保留 App 数据。完整记录见 [V1.2.1 发布验收](../docs/V1.2.1发布验收-2026-09-26.md)。
+当前正式版本 V1.2.3（`versionCode=5`），发布附件为 `ZAQuant-Mobile-v1.2.3.apk`。同签名可覆盖升级并保留 App 数据。
 
 - 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
   （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。
