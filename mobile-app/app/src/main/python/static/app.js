@@ -15,6 +15,7 @@ const state = {
   decision: null,
   decisionReq: 0,
   instruments: [],
+  instrumentInfo: {}, // 合约名称/交易参数不随临时搜索列表清空。
   watchlist: JSON.parse(localStorage.getItem("watchlist") || '["SHFE.rb2610","SHFE.au2612","DCE.m2609"]'),
   screen: "quotes",
   klineReq: 0,
@@ -37,15 +38,21 @@ const now = () => new Date().toLocaleTimeString("zh-CN", { hour12: false });
  * @param {number} timeoutMs 超时毫秒数（默认 45s，K线/决策类接口较慢）
  * @returns {Promise<Object>} 后端 JSON；非 2xx 抛 Error(detail)，供各 load* 统一捕获
  */
-async function api(path, timeoutMs = 45000) {
+async function api(path, timeoutMs = 45000, externalSignal = null) {
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (externalSignal?.aborted) cancel();
+  else externalSignal?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const r = await fetch(path, { signal: controller.signal });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
     return body;
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", cancel);
+  }
 }
 
 /* ---------- 屏幕切换 ---------- */
@@ -56,6 +63,7 @@ async function api(path, timeoutMs = 45000) {
  * @param {string} name 屏幕名："quotes" | "kline" | "decision" | "me"
  */
 function showScreen(name) {
+  const previousScreen = state.screen;
   for (const s of document.querySelectorAll(".screen")) s.classList.add("hidden");
   $("screen-" + name).classList.remove("hidden");
   for (const t of document.querySelectorAll("#tabbar .tab"))
@@ -64,6 +72,13 @@ function showScreen(name) {
   if (name === "kline") { setTimeout(() => { state.chart && state.chart.resize(); state.macdChart && state.macdChart.resize(); }, 60); }
   if (name === "quotes") renderWatchlist();
   if (name === "depth") renderDepth();
+  sendSubscribe();
+  // 首页只显示自选；进入合约详情时再拉图表和评估，避免首页创建非自选图表订阅。
+  if (isViewingContract() && previousScreen !== name) { loadKline(); loadDecision(); }
+}
+
+function isViewingContract() {
+  return ["kline", "depth", "decision"].includes(state.screen);
 }
 
 /* ---------- 行情主页 ---------- */
@@ -73,21 +88,8 @@ function removeWatch(symbol) {
   if (i < 0) return;
   state.watchlist.splice(i, 1);
   localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
-  if (symbol === state.symbol) {
-    // 删的是当前查看的合约：切回第一个自选，否则留在空页
-    state.symbol = state.watchlist[0] || state.symbol;
-    $("k-name").textContent = state.symbol.split(".")[1];
-    $("k-code").textContent = state.symbol;
-    $("d-code").textContent = state.symbol;
-    $("d-name").textContent = state.symbol;
-    if (state.ws && state.ws.readyState === 1) {
-      state.ws.send(JSON.stringify({ action: "subscribe", symbols: state.watchlist.length ? state.watchlist : [state.symbol] }));
-    }
-  } else if (state.ws && state.ws.readyState === 1) {
-    // 删除非当前合约：取消订阅该合约，避免残留
-    state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: [symbol] }));
-  }
   renderWatchlist();
+  sendSubscribe();
 }
 /**
  * 重建搜索结果列表：清空容器、重置分页游标后渲染第一批（50 条）。
@@ -357,7 +359,7 @@ function renderDecision(d) {
   $("dd-bar-l").style.width = (d.score_long / total * 100) + "%";
   const symEl = $("dd-sym");
   if (symEl) {
-    const inst = state.instruments.find(x => x.symbol === state.symbol);
+    const inst = state.instrumentInfo[state.symbol];
     const name = inst ? (inst.name || inst.instrument_id) : state.symbol.split(".")[1];
     symEl.textContent = `${name} (${state.symbol})`;
   }
@@ -403,6 +405,7 @@ function renderQuickPanel(d) {
  * klineReq 序号防乱序：慢请求返回时若已有更新的请求，直接丢弃本次结果。
  */
 async function loadKline() {
+  if (!isViewingContract()) return;
   const reqId = ++state.klineReq;
   try {
     const d = await api(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=150`, 45000);
@@ -416,6 +419,7 @@ async function loadKline() {
  * 同样带 reqId 序号防乱序。
  */
 async function loadDecision() {
+  if (!isViewingContract()) return;
   const reqId = ++state.decisionReq, symbol = state.symbol;
   try {
     const d = await DecisionControls.request(symbol);
@@ -437,38 +441,43 @@ window.addEventListener("decisionprofilechange", () => {
   loadDecision();
 });
 /**
- * 拉取合约目录列表（搜索/全量浏览）。
- * 目录未就绪（catalogReady=false）时不请求、不报错——只展示"下载中"提示，
- * loadStatus 轮询发现就绪后会自动补拉（配合后端内置表 + 后台下载链路）。
- * @param {string} keyword 搜索关键字（空 = 全量分批浏览）
+ * 展示搜索提示文本；空输入不请求合约，输入后按品种查询当前挂牌月份。
  */
-async function loadInstruments(keyword = "") {
-  // 目录未就绪：不拉取、不报错，只显示下载中提示，等 loadStatus 发现就绪后再补拉。
-  if (!state.catalogReady) {
-    if (state.screen === "quotes")
-      $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">合约目录下载中，下载完成后自动显示搜索结果…</div></div></div>`;
-    return;
-  }
+function searchMessage(message) {
+  // 用 textContent 展示输入和服务端错误，避免把文本当 HTML 执行。
+  $("resultlist").textContent = message;
+}
+
+async function loadInstruments(keyword = $("search").value.trim()) {
   state.searchSeq = (state.searchSeq || 0) + 1;
   const reqSeq = state.searchSeq;
+  state.searchAbort?.abort();
+  const controller = new AbortController();
+  state.searchAbort = controller;
+  state.instruments = [];
+  if (!keyword) {
+    state.instrumentsLoading = false;
+    searchMessage("输入品种名称或代码搜索，例如棕榈油2701、烧碱、纯碱。点☆加入自选。");
+    return;
+  }
   state.instrumentsLoading = true;
+  searchMessage("正在查询合约…");
   try {
-    const d = await api(`/api/v1/instruments${keyword ? "?keyword=" + encodeURIComponent(keyword) : ""}`);
+    const d = await api("/api/v1/instruments?keyword=" + encodeURIComponent(keyword), 14000, controller.signal);
     if (reqSeq !== state.searchSeq) return;
     state.instruments = d.items || [];
+    for (const item of state.instruments) state.instrumentInfo[item.symbol] = item;
     renderSearch();
+    if (!state.instruments.length) searchMessage("未找到匹配合约，请核对品种名称或完整代码后重试。");
   } catch (e) {
-    if (reqSeq !== state.searchSeq) return;
-    if (state.screen === "quotes")
-      $("resultlist").innerHTML = `<div class="watch-row"><div class="l"><div class="cd">加载合约列表失败（${e.message}），可切换页面后重试</div></div></div>`;
-    console.log("instruments:", e.message);
+    if (reqSeq !== state.searchSeq || controller.signal.aborted) return;
+    searchMessage(e.name === "AbortError" ? "查询超时，请按回车重试。" : `查询失败：${e.message}，可按回车重试。`);
   } finally {
     if (reqSeq === state.searchSeq) state.instrumentsLoading = false;
   }
 }
 /**
- * 轮询后端状态（15 秒一次）：更新连接标识/账号/路线/目录下载进度提示，
- * 目录就绪瞬间自动补拉一次搜索列表。失败静默（下一轮再试）。
+ * 轮询连接状态，恢复连接时只补查当前非空输入；不周期性枚举合约。
  */
 async function loadStatus() {
   try {
@@ -479,20 +488,15 @@ async function loadStatus() {
     $("me-route").textContent = st.route || "--";
     if ($("me-ds")) $("me-ds").textContent = (st.route || "C 直连版") + " · 天勤行情";
     $("q-route").textContent = st.route || "";
+    const becameReady = !state.catalogReady && !!st.catalog_ready;
     state.catalogReady = !!st.catalog_ready;
-    // 合约目录加载中提示（用户能感知"导入未完成"）
     const tip = $("catalog-tip");
     if (tip) {
-      if (st.catalog_loading) {
-        const prog = st.catalog_progress ? ` ${st.catalog_progress}` : "";
-        tip.classList.remove("hidden");
-        tip.textContent = `⏳ 正在下载合约目录${prog}，行情/自选已可用，完成后即可搜索全部合约…`;
-      } else if (st.catalog_ready) {
-        tip.classList.add("hidden");
-      }
+      tip.classList.remove("hidden");
+      tip.textContent = st.connected ? "按名称或代码查询最新合约，加入自选后持续更新行情。" : "连接天勤后即可搜索合约。";
     }
-    // 目录一就绪，立刻补拉一次搜索列表
-    if (state.catalogReady && !state.instrumentsLoading) loadInstruments($("search").value.trim());
+    // 只在连接恢复且有输入时补查；15 秒状态轮询不再反复请求合约。
+    if (becameReady && $("search").value.trim()) loadInstruments();
   } catch (e) { /* 忽略 */ }
 }
 
@@ -513,6 +517,7 @@ function connectWS() {
   const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/market`);
   state.ws = ws;
   ws.onopen = () => {
+    // 保留旧集合，以便重连时发送离线期间删除的自选退订。
     // 订阅全部自选合约（不只是当前查看的），这样自选列表每行都能实时更新价格
     sendSubscribe();
   };
@@ -531,7 +536,7 @@ function connectWS() {
       // 当前查看的合约更新主报价区；自选列表里所有合约都更新对应行
       if (msg.symbol === state.symbol) { state.quote = msg.data; renderQuote(); }
       updateWatchPrice(msg.symbol, msg.data);
-    } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
+    } else if (msg.type === "subscribed" && msg.failed?.some((failure) => /未连接|初始化|超时|服务|稍候|查询失败/.test(failure.reason))) {
       // 缺陷 A 前端：订阅失败（后端尚未连接就绪）——退避重试，不丢一次即放弃。
       // 后端也会在 on_connected 时重放 pending，这里兜底防"hello 之后还没就绪"的窗口。
       retrySubscribe();
@@ -541,10 +546,15 @@ function connectWS() {
 }
 
 /* 发送一次订阅全部自选（onopen / 重试 / 切换合约共用） */
+let sentSubscriptions = new Set();
 function sendSubscribe() {
   if (!state.ws || state.ws.readyState !== 1) return;
-  const all = [...new Set([state.symbol, ...state.watchlist])];
-  if (all.length) state.ws.send(JSON.stringify({ action: "subscribe", symbols: all }));
+  const viewing = isViewingContract() ? [state.symbol] : [];
+  const desired = new Set([...state.watchlist, ...viewing].filter(Boolean));
+  const removed = [...sentSubscriptions].filter((symbol) => !desired.has(symbol));
+  if (removed.length) state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: removed }));
+  if (desired.size) state.ws.send(JSON.stringify({ action: "subscribe", symbols: [...desired] }));
+  sentSubscriptions = desired;
 }
 
 /* 退避重试订阅：首次 1s，之后 2s/4s，封顶 5s，最多 6 次（~20s 窗口） */
@@ -604,6 +614,7 @@ function renderWatchlist() {
  */
 function switchSymbol(symbol, autoWatch = false) {
   if (symbol === state.symbol) { showScreen("kline"); return; }
+  const alreadyOnKline = state.screen === "kline";
   state.symbol = symbol;
   state.decision = null; state.kline = [];
   DecisionControls.renderMeta(null);
@@ -614,7 +625,7 @@ function switchSymbol(symbol, autoWatch = false) {
   // 有缓存价格就先回填，避免切换瞬间报价头闪 --（后续实时推送会覆盖）
   state.quote = state.quotes[symbol] || null;
   if (state.quote) renderQuote();
-  const inst = state.instruments.find(x => x.symbol === symbol);
+  const inst = state.instrumentInfo[symbol];
   const name = inst ? (inst.name || inst.instrument_id) : symbol.split(".")[1];
   $("k-name").textContent = name;
   $("k-code").textContent = symbol;
@@ -627,7 +638,7 @@ function switchSymbol(symbol, autoWatch = false) {
   showScreen("kline");
   // 切换合约时重新订阅当前+全部自选，保证价格持续更新
   sendSubscribe();
-  loadKline(); loadDecision();
+  if (alreadyOnKline) { loadKline(); loadDecision(); }
 }
 
 /** 切换当前合约的自选收藏状态（K线页 ★/☆ 按钮），同步持久化与列表。 */
@@ -637,6 +648,7 @@ function toggleWatch() {
   localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   $("k-star").textContent = state.watchlist.includes(state.symbol) ? "★" : "☆";
   renderWatchlist();
+  sendSubscribe();
 }
 
 /* ---------- 登录 ---------- */
@@ -741,9 +753,14 @@ $("btn-dc").addEventListener("click", () => {
   $("dc-caret").textContent = $("dc-quick").classList.contains("hidden") ? "›" : "⌄";
 });
 $("search").addEventListener("input", () => {
+  state.searchSeq = (state.searchSeq || 0) + 1;
+  state.searchAbort?.abort();
   const kw = $("search").value.trim();
   clearTimeout(state.searchTimer);
   state.searchTimer = setTimeout(() => loadInstruments(kw), 300);
+});
+$("search").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { clearTimeout(state.searchTimer); loadInstruments(); }
 });
 $("login-save").addEventListener("click", saveLogin);
 $("login-password").addEventListener("keydown", (e) => { if (e.key === "Enter") saveLogin(); });

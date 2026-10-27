@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -144,7 +144,9 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
     def status(services: Services = Depends(get_services)) -> dict:
         futures_count = None
         # 目录后台下载中时不等待：status 必须始终秒回
-        if services.client.connected and getattr(services.client, "catalog_ready", True):
+        if getattr(services.client, "supports_symbol_search", False):
+            futures_count = services.client.known_futures_count
+        elif services.client.connected and getattr(services.client, "catalog_ready", True):
             try:
                 futures_count = len(services.instruments.futures())
             except TqClientError:
@@ -160,7 +162,9 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
             "futures_count": futures_count,
             "catalog_ready": catalog_ready,
             "catalog_complete": catalog_complete,
-            "catalog_loading": services.client.connected and not catalog_complete,
+            "catalog_loading": getattr(services.client, "catalog_loading",
+                                       services.client.connected and not catalog_complete),
+            "catalog_mode": "search" if getattr(services.client, "supports_symbol_search", False) else "catalog",
             "catalog_progress": getattr(services.client, "catalog_progress", None),
             # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
             "last_quote_unix": services.last_quote_unix,
@@ -171,10 +175,13 @@ def create_app(config: Config, auto_exit_idle_seconds: Optional[int] = None) -> 
 
     @router.get("/api/v1/instruments")
     def instruments(exchange: str = "", keyword: str = "", refresh: bool = False,
+                    limit: int = Query(200, ge=1, le=300),
                     services: Services = Depends(get_services)) -> dict:
         require_connected(services)
-        items = services.instruments.list(exchange=exchange.upper(), keyword=keyword, refresh=refresh)
-        return {"total": len(items), "exchange": exchange.upper(), "keyword": keyword, "items": items}
+        items = services.instruments.list(exchange=exchange.upper(), keyword=keyword,
+                                          refresh=refresh, limit=limit)
+        return {"total": len(items), "exchange": exchange.upper(), "keyword": keyword,
+                "limited": len(items) >= limit, "items": items}
 
     @router.get("/api/v1/instruments/{exchange}")
     def instruments_by_exchange(exchange: str, services: Services = Depends(get_services)) -> dict:

@@ -180,7 +180,9 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         catalog = None
         catalog_ready = getattr(hub.client, "catalog_ready", True)
         catalog_complete = getattr(hub.client, "catalog_complete", catalog_ready)
-        if hub.client.connected and catalog_ready:
+        if getattr(hub.client, "supports_symbol_search", False):
+            catalog = hub.client.known_futures_count
+        elif hub.client.connected and catalog_ready:
             try:
                 catalog = len(hub.instruments.futures())
             except Exception:
@@ -194,7 +196,9 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
                       "futures_count": catalog,
                       "catalog_ready": catalog_ready,
                       "catalog_complete": catalog_complete,
-                      "catalog_loading": hub.client.connected and not catalog_complete,
+                      "catalog_loading": getattr(hub.client, "catalog_loading",
+                                                 hub.client.connected and not catalog_complete),
+                      "catalog_mode": "search" if getattr(hub.client, "supports_symbol_search", False) else "catalog",
                       "catalog_progress": getattr(hub.client, "catalog_progress", None),
                       # ---- 延迟统计埋点（P0-200ms）：供 tools/latency_probe.py 采样 ----
                       "last_quote_unix": hub.services.last_quote_unix,
@@ -208,13 +212,18 @@ def create_mobile_app(hub: MobileHub) -> Starlette:
         exchange = request.query_params.get("exchange", "").upper()
         keyword = request.query_params.get("keyword", "")
         try:
+            limit = max(1, min(300, int(request.query_params.get("limit", "200"))))
+        except ValueError:
+            return _json({"detail": "limit 必须是整数"}, 422)
+        refresh = request.query_params.get("refresh", "").lower() in ("1", "true")
+        try:
             # 缺陷 D：不再硬编码 limit=200（此前 578 条期货只能看到前 200）。
             # 全量返回，前端按滚动位置增量渲染（renderSearch 分批 append）。
             items = await run_blocking(
-                hub.instruments.list, exchange=exchange, keyword=keyword, limit=0)
+                hub.instruments.list, exchange=exchange, keyword=keyword, refresh=refresh, limit=limit)
         except TqClientError as error:
             return _json({"detail": str(error)}, 503)
-        return _json({"total": len(items), "exchange": exchange,
+        return _json({"total": len(items), "exchange": exchange, "limited": len(items) >= limit,
                       "keyword": keyword, "items": items})
 
     async def instruments_by_exchange(request):

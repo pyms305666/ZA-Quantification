@@ -1,8 +1,8 @@
 ; ZA量化-C直连版 安装向导脚本（Inno Setup 6.5+）
-; 版本号 V1.2.3（与 Release 一致）
+; 版本号 V1.3.1（当前 1.3.1 构建目标；发布状态见项目进度）
 
 #define MyAppName "ZA量化-C直连版"
-#define MyAppVersion "1.2.3"
+#define MyAppVersion "1.3.1"
 #define MyAppExeName "ZA量化-C直连版.exe"
 
 [Setup]
@@ -14,7 +14,7 @@ DefaultDirName={autopf}\{#MyAppName}
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 OutputDir=..\dist
-OutputBaseFilename=ZAQuant-V1.2.3-C-Direct-Setup
+OutputBaseFilename=ZAQuant-V1.3.1-C-Direct-Setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

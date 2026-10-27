@@ -2,7 +2,9 @@
 
 > 国内期货行情读取、图表展示与技术分析评估工具。当前源码版本见 [`VERSION`](VERSION)；本文描述仓库当前代码，不替代 `docs/验证记录/` 中带日期的历史验收记录。
 
-V1.2.3 提供 Windows C 直连版安装包/独立程序和 Android 正式签名 APK，下载见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.3)，测试与打包记录见 [V1.2.1 发布验收](docs/V1.2.1发布验收-2026-09-26.md)。
+当前版本为 **V1.3.1**，包含按需合约搜索及真实天勤查询兼容修复；下载和发布状态见 [GitHub Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.3.1)，验证记录见 [`项目进度.md`](项目进度.md)。此前 V1.2.3 的 Windows/Android 安装包见 [历史 Release](https://github.com/pyms305666/ZA-Quantification/releases/tag/v1.2.3)。
+
+1.3.1 发布产物包括 Windows 安装包、独立程序和 Android 正式签名 APK。真实合约查询与构建验证见 [1.3.1 修复记录](docs/V1.3.1合约查询修复-2026-10-27.md)。电脑升级前先关闭旧运行窗口，启动后确认页面 V1.3.1，避免继续复用旧服务。
 
 项目只读取行情、计算指标并生成参考评估，**不提供下单或自动交易能力**。桌面 Web、Electron 和 Android 端均通过本机运行的 Python 行情后端工作；Android 在设备内嵌入 Python，不依赖本项目自建云服务器。
 
@@ -51,7 +53,8 @@ python launcher.py
 
 ## 功能和 API
 
-- 合约目录查询、交易所筛选与关键词搜索；目录可从内置精简数据和本地完整缓存恢复，首次补全可能因上游服务限速耗时较长。`/api/v1/status` 提供目录就绪/完整/加载状态。
+- 合约按输入查询：启动和空搜索不拉取完整目录，支持中文品种、品种代码、月份和交易所筛选，例如“棕榈油2701”“烧碱”“SA2701”。中文输入通过轻量品种名称索引定位，再查询天勤当前挂牌月份；搜索不申请行情订阅。详见 [合约按需搜索实施说明](docs/合约按需搜索-2026-10-26.md)。
+- 自选持续订阅；当前打开的非自选合约临时订阅，切走后退订。搜索结果缓存 60 秒，品种名称索引缓存 1 小时，成功空结果仅缓存 5 秒；相同条件并发查询合并，失败可重试。`/api/v1/status` 的 `catalog_mode=search` 表示此模式，`futures_count` 是本次会话已查过的合约数。
 - 最新报价、订阅管理、K 线（1/5/15/30/60 分钟及日线）与技术评估。
 - 评估支持超短线（5–30 分钟、不隔夜）、短线（1–3 个交易日）、中线（2–4 周）、长线（1–3 个月）；每档风险可在界面独立修改并保存在本设备，切换评估不改变图表周期。
 - K 线 UI 展示蜡烛图、均线、成交量、持仓量和 MACD；数据是否实时取决于行情连接和市场时段。
@@ -63,8 +66,8 @@ python launcher.py
 |---|---|---|
 | GET / POST | `/api/v1/auth` | 查看登录配置状态 / 保存账号并连接（不返回密码） |
 | GET | `/api/v1/status` | 连接、订阅、目录和行情接收状态 |
-| GET | `/api/v1/instruments?exchange=&keyword=&refresh=` | 搜索与筛选合约 |
-| GET | `/api/v1/instruments/{exchange}` | 按交易所查询合约 |
+| GET | `/api/v1/instruments?exchange=&keyword=&refresh=&limit=200` | 按需搜索；空关键词返回空列表，limit 为 1–300，refresh=true 强制重新查询 |
+| GET | `/api/v1/instruments/{exchange}` | 兼容入口，空关键词返回空列表；请使用上一条接口同时传入交易所和关键词 |
 | GET | `/api/v1/options/{underlying}` | 查询标的期权代码 |
 | GET | `/api/v1/quote/{symbol}` | 查询最新报价；未订阅时可自动订阅并返回 pending |
 | GET | `/api/v1/kline/{symbol}?period=300&count=200` | 查询 K 线；period 为秒，count 限制在 30–1000 |

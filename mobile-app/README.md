@@ -34,7 +34,7 @@ cd mobile-app
 
 ## release 签名（V1.1.3 起）
 
-当前正式版本 V1.2.3（`versionCode=5`），发布附件为 `ZAQuant-Mobile-v1.2.3.apk`。同签名可覆盖升级并保留 App 数据。
+当前版本 **V1.3.1**（`versionCode=6`），包含按需合约搜索兼容修复。此前 V1.2.3 的 Android 版本序号为 5；已验证本轮正式包与此前正式包证书一致，满足覆盖升级的签名和版本条件。实际手机覆盖升级仍需设备验证；发布状态见根目录 `项目进度.md` 与 GitHub Release。
 
 - 正式发布用 `./gradlew --no-daemon assembleRelease`，签名配置读 `mobile-app/keystore.properties`
   （**不进仓库**，指向仓库外 keystore：本机为 `E:/keys/zaquant-release.keystore`，alias `zaquant`）。
@@ -68,8 +68,8 @@ cd mobile-app
   并跑 `python tools/check_core_drift.py` 确认没有意外分叉。
 - App 私有可写目录通过 Java 系统属性 `za.filesdir` 传入后端
   （`MainActivity.java` 设置，`config.py`/`backend_main.py` 读取），凭据与合约缓存都写在那里。
-- 合约目录采用 gzip 下载 + ijson 流式解析 + pickle 精简索引（`tqdiff/symbol_index.py`），
-  索引文件约 25MB，二次启动秒级加载；原始 .gz 约 8.3MB 也保留在私有目录。
+- 输入名称或代码后，通过天勤 DIFF 查询对应品种的挂牌月份；启动和空搜索不加载完整合约目录。
+  搜索本身不持续订阅行情，自选持续订阅，非自选详情临时订阅并在离开时释放。
 
 ## 应用图标与后台运行
 

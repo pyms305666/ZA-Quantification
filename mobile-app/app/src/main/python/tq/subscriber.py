@@ -95,7 +95,8 @@ class SubscriptionManager:
                 if instrument.expire_rest_days is not None and instrument.expire_rest_days <= 1:
                     failed.append({"symbol": raw, "reason": f"合约临近交割（剩余 {instrument.expire_rest_days} 天），拒绝订阅"})
                     continue
-            if not getattr(self._client, "catalog_complete", True):
+            if (not getattr(self._client, "catalog_complete", True)
+                    and not getattr(self._client, "supports_symbol_search", False)):
                 queue_subscription = getattr(self._client, "queue_subscription", None)
                 if callable(queue_subscription):
                     queue_subscription(normalized)
@@ -124,12 +125,25 @@ class SubscriptionManager:
         unsubscribed: list[str] = []
         missing: list[str] = []
         for raw in symbols or []:
+            # 从未连接时挂起的订阅也必须能取消，否则用户删除后重连又会订阅回来。
+            pending = [value for value in self._pending if value.strip().upper() == raw.strip().upper()]
+            self._pending.difference_update(pending)
+            if pending and raw not in self._subscribed and raw not in self._subscribed.values():
+                unsubscribed.append(raw)
+                continue
             normalized = self._normalize_known(raw)
             if normalized is None:
+                if pending:
+                    unsubscribed.append(raw)
+                    continue
                 missing.append(raw)
                 continue
             try:
-                self._client.run_command("unsubscribe", normalized, timeout=5.0)
+                discard = getattr(self._client, "discard_subscription", None)
+                if not self._client.connected and callable(discard):
+                    discard(normalized)
+                else:
+                    self._client.run_command("unsubscribe", normalized, timeout=5.0)
             except TqClientError:
                 missing.append(raw)
                 continue

@@ -8,7 +8,7 @@ const PERIODS = { 60: "1分钟", 300: "5分钟", 900: "15分钟", 1800: "30分�
 let initialWatchlist = ["SHFE.rb2610", "SHFE.au2612", "DCE.m2609"];
 try {
   const parsed = JSON.parse(localStorage.getItem("watchlist") || "null");
-  if (Array.isArray(parsed) && parsed.length) initialWatchlist = parsed;
+  if (Array.isArray(parsed)) initialWatchlist = parsed;
 } catch {}
 
 const state = {
@@ -20,6 +20,7 @@ const state = {
   decisionReq: 0,
   ws: null,
   instruments: [],
+  instrumentInfo: {}, // 搜索列表可随输入清空；已查看合约的精度和名称独立保留。
   exchange: "",  // 交易所过滤
   watchlist: initialWatchlist,
   instPoll: null,   // 合约目录失败/未就绪时的自动重试定时器
@@ -35,6 +36,10 @@ const state = {
  */
 async function fetchJSON(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
+  const externalSignal = options?.signal;
+  const cancel = () => controller.abort();
+  if (externalSignal?.aborted) cancel();
+  else externalSignal?.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await fetch(url, { ...(options || {}), signal: controller.signal });
@@ -43,6 +48,7 @@ async function fetchJSON(url, options, timeoutMs = 30000) {
     return body;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", cancel);
   }
 }
 
@@ -56,7 +62,7 @@ function fmtVol(v) { return v === null || v === undefined ? "--" : Number(v).toL
 
 /** 根据合约最小变动价位计算小数位数 */
 function getDigits(symbol) {
-  const item = state.instruments.find((i) => i.symbol === symbol);
+  const item = state.instrumentInfo[symbol];
   if (!item || item.price_tick == null) return 2;
   const s = String(item.price_tick);
   const dot = s.indexOf(".");
@@ -108,9 +114,16 @@ const $ = (id) => document.getElementById(id);
 /* ---------------- 合约列表 ---------------- */
 let searchTimer = null;
 let searchSeq = 0;
+let searchAbort = null;
 $("search").addEventListener("input", () => {
+  // 用户一改输入就使旧请求失效，不等 300ms 防抖结束，防止旧结果闪回。
+  searchSeq += 1;
+  searchAbort?.abort();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(loadInstruments, 300);
+});
+$("search").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") { clearTimeout(searchTimer); loadInstruments(); }
 });
 
 /**
@@ -119,26 +132,38 @@ $("search").addEventListener("input", () => {
  */
 async function loadInstruments() {
   const seq = ++searchSeq;
+  searchAbort?.abort();
+  searchAbort = new AbortController();
+  const controller = searchAbort;
+  state.instruments = [];
+  renderContractList();
+  const keyword = $("search").value.trim();
+  if (!keyword) {
+    $("inst-count").textContent = "输入名称或代码搜索";
+    $("contract-list").textContent = "输入名称或代码，例如棕榈油2701、烧碱、纯碱。搜索后点击合约查看，点击☆加入自选。";
+    return;
+  }
+  $("inst-count").textContent = "正在查询合约…";
   try {
-    const keyword = $("search").value.trim();
     const params = new URLSearchParams();
     if (keyword) params.set("keyword", keyword);
     if (state.exchange) params.set("exchange", state.exchange);
     const url = `/api/v1/instruments${params.toString() ? `?${params}` : ""}`;
-    const data = await fetchJSON(url);
+    const data = await fetchJSON(url, { signal: controller.signal }, 14000);
     if (seq !== searchSeq) return;
     state.instruments = data.items || [];
-    $("inst-count").textContent = `共 ${data.total} 个`;
+    for (const item of state.instruments) state.instrumentInfo[item.symbol] = item;
+    $("inst-count").textContent = data.limited ? `已显示 ${data.total} 个，请补充品种或月份` : `共 ${data.total} 个`;
     renderContractList();
-    const item = state.instruments.find((i) => i.symbol === state.symbol);
+    if (!state.instruments.length) $("contract-list").textContent = "未找到匹配合约，请核对品种名称或完整代码后重试。";
+    const item = state.instrumentInfo[state.symbol];
     if (item && !$("qb-meta").textContent) {
       $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
     }
   } catch (e) {
-    if (seq !== searchSeq) return;
-    $("inst-count").textContent = `加载中（${e.message}），5秒后重试`;
-    clearTimeout(state.instPoll);
-    state.instPoll = setTimeout(loadInstruments, 5000);
+    if (seq !== searchSeq || controller.signal.aborted) return;
+    $("inst-count").textContent = "查询失败，可按回车重试";
+    $("contract-list").textContent = e.name === "AbortError" ? "查询超时，请重试。" : e.message;
   }
 }
 
@@ -188,6 +213,7 @@ function toggleWatch() {
   localStorage.setItem("watchlist", JSON.stringify(state.watchlist));
   renderWatchlist();
   updateFavButton();
+  sendSubscribe();
 }
 
 /* ---------------- 图表 ---------------- */
@@ -507,12 +533,16 @@ async function logoutAuth() {
 /* ---------------- 数据拉取 ---------------- */
 /** 拉取 K 线并渲染图表。 */
 async function loadKline(resetZoom = false) {
+  const reqId = state.klineReq = (state.klineReq || 0) + 1;
+  const symbol = state.symbol, period = state.period;
   try {
-    const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(state.symbol)}?period=${state.period}&count=400`, null, 45000);
+    const data = await fetchJSON(`/api/v1/kline/${encodeURIComponent(symbol)}?period=${period}&count=400`, null, 45000);
+    if (reqId !== state.klineReq || symbol !== state.symbol || period !== state.period) return;
     state.kline = data.bars || [];
     renderChart(resetZoom);
     updateLastPriceLine();
   } catch (e) {
+    if (reqId !== state.klineReq || symbol !== state.symbol || period !== state.period) return;
     $("chart-hint").textContent = `K线加载失败：${e.message}`;
   }
 }
@@ -552,12 +582,24 @@ async function loadStatus() {
 }
 
 /* ---------------- WebSocket ---------------- */
+let sentSubscriptions = new Set();
+/** 自选保持订阅，当前查看的非自选只临时订阅；切走时发送退订，释放图表。 */
+function sendSubscribe() {
+  if (!state.ws || state.ws.readyState !== 1) return;
+  const desired = new Set([...state.watchlist, state.symbol].filter(Boolean));
+  const removed = [...sentSubscriptions].filter((symbol) => !desired.has(symbol));
+  if (removed.length) state.ws.send(JSON.stringify({ action: "unsubscribe", symbols: removed }));
+  if (desired.size) state.ws.send(JSON.stringify({ action: "subscribe", symbols: [...desired] }));
+  sentSubscriptions = desired;
+}
+
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/market`);
   state.ws = ws;
   ws.onopen = () => {
-    ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
+    // 保留上次已发送的集合，重连时补发离线期间发生的删除。
+    sendSubscribe();
     $("st-ws").textContent = "WebSocket：已连接";
     $("st-ws").className = "ok";
   };
@@ -579,10 +621,10 @@ function connectWS() {
       }
       scheduleQuoteRender();
       $("st-updated").textContent = `更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}${latencyText}`;
-    } else if (msg.type === "subscribed" && msg.failed && msg.failed.length) {
+    } else if (msg.type === "subscribed" && msg.failed?.some((failure) => /未连接|初始化|超时|服务|稍候|查询失败/.test(failure.reason))) {
       setTimeout(() => {
         if (state.ws && state.ws.readyState === 1) {
-          state.ws.send(JSON.stringify({ action: "subscribe", symbols: [state.symbol] }));
+          sendSubscribe();
         }
       }, 5000);
     } else if (msg.type === "hello") {
@@ -622,12 +664,10 @@ async function switchSymbol(symbol) {
   renderQuoteBar();
   renderDepth();
   renderDecision();
-  if (state.ws && state.ws.readyState === 1) {
-    state.ws.send(JSON.stringify({ action: "subscribe", symbols: [symbol] }));
-  }
+  sendSubscribe();
   await loadKline(true);
   loadDecision();
-  const item = state.instruments.find((i) => i.symbol === symbol);
+  const item = state.instrumentInfo[symbol];
   if (item) $("qb-meta").textContent = `${item.name} · ${item.exchange} · 乘数 ${item.volume_multiple ?? "-"}`;
 }
 

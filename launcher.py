@@ -107,10 +107,15 @@ def main() -> None:
 
 
 def version() -> str:
+    """读取随程序打包的版本，独立 EXE 从任意目录启动也能显示正确版本。
+
+    配置仍保存在工作目录；版本属于程序资源，应从 _MEIPASS/源码目录读取。
+    否则安装目录没有单独的 VERSION 文件时，会误显示历史兜底值 1.1.1。
+    """
     try:
-        return Path("VERSION").read_text(encoding="utf-8").strip() or "1.1.1"
+        return resource_path("VERSION").read_text(encoding="utf-8").strip() or "unknown"
     except OSError:
-        return "1.1.1"
+        return "unknown"
 
 
 if __name__ == "__main__":

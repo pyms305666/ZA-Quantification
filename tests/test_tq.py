@@ -204,6 +204,24 @@ class SubscriptionManagerTests(unittest.TestCase):
         # pending 被重放，合约进入订阅表
         self.assertEqual(manager.subscribed(), ["SHFE.rb2610"])
 
+    def test_remove_pending_watch_does_not_return_after_reconnect(self):
+        client = FakeClient()
+        client.connected = False
+        manager = SubscriptionManager(client, InstrumentManager(client))
+        manager.subscribe(["SHFE.rb2610"])
+        manager.unsubscribe(["SHFE.rb2610"])
+        client.connected = True
+        manager.on_connected()
+        self.assertEqual(manager.subscribed(), [])
+
+    def test_remove_pending_bare_code_never_queries_while_offline(self):
+        client = FakeClient()
+        client.connected = False
+        manager = SubscriptionManager(client, InstrumentManager(client))
+        manager.subscribe(["rb2610"])
+        self.assertEqual(manager.unsubscribe(["rb2610"])["unsubscribed"], ["rb2610"])
+        self.assertEqual(client.commands, [])
+
     def test_reconnect_replays_existing_subscriptions(self):
         """缺陷 F：重连后 on_connected 重放当前订阅表中的合约。
 

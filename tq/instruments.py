@@ -1,6 +1,6 @@
-"""合约发现：不手工维护合约列表，从 TqSdk 动态建立自己的合约目录。
+"""合约查询适配：DIFF 客户端按输入查询，保留旧客户端的本地目录接口。
 
-- 期货：query_quotes(FUTURE) 全量拉取（首次调用后缓存）。
+- 当前期货入口：search_instruments 按品种/代码查询，空输入不枚举目录。
 - 期权：按标的懒查询 query_options(underlying)，不默认订阅。
 - 记录统一为 market.model.Instrument 结构（symbol / exchange / instrument_id /
   name / expired / price_tick / volume_multiple）。
@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from typing import Optional
@@ -25,7 +26,11 @@ EXCHANGE_INSTRUMENT_CASE: dict[str, str] = {
 def canonical_instrument(exchange: str, instrument: str) -> str:
     """按交易所规范返回合约代码大小写（如 IF2609、sr609）。"""
     case = EXCHANGE_INSTRUMENT_CASE.get(exchange.upper(), "lower")
-    return instrument.upper() if case == "upper" else instrument.lower()
+    value = instrument.upper() if case == "upper" else instrument.lower()
+    if exchange.upper() == "CZCE":
+        # 郑商所实际代码用 YMM；用户输入品种+YYMM 时去掉十年位，例如 SA2701→SA701。
+        value = re.sub(r"^([A-Z]{1,3})\d(\d{3})$", r"\1\2", value)
+    return value
 
 
 def build_symbol_variants(exchange: str, instrument: str) -> list[str]:
@@ -68,7 +73,8 @@ class InstrumentManager:
              limit: int = 0) -> list[dict]:
         """合约目录列表查询（搜索框与合约列表页的唯一入口）。
 
-        执行流程：futures() 取全部候选 → 按交易所前缀过滤 → 关键字后置匹配
+        当前 DIFF 客户端按输入远程查询，缓存/中文解析在 SymbolSearch 中处理。
+        下面的 futures() 枚举流程仅供旧版客户端兼容：全部候选 → 交易所过滤 → 关键字匹配
         （代码或中文名）→ 批量补齐 record（一次 get_instruments_info 命令，
         避免逐个查询的超时放大）→ 按 symbol 排序返回。
 
@@ -81,6 +87,13 @@ class InstrumentManager:
         Returns:
             精简 record 字典列表，按 symbol 排序。
         """
+        if getattr(self._client, "supports_symbol_search", False):
+            # 空搜索是空列表：不遍历 futures()、不批量补元数据，也不订阅任何行情。
+            # 相同品种的缓存和并发合并由行情循环中的 SymbolSearch 统一管理。
+            if not keyword.strip():
+                return []
+            return self._client.run_command("search_instruments", exchange.upper(), keyword,
+                                            refresh, limit or 200, timeout=12.0)
         exchange = exchange.upper()
         code_keyword = keyword.lower()
         candidates: list[str] = []
@@ -142,6 +155,13 @@ class InstrumentManager:
         normalized = normalize_symbol(self._client, symbol)
         if normalized is None:
             return None
+        if getattr(self._client, "supports_symbol_search", False):
+            # 单合约也以服务端短缓存为准，不能永久缓存旧交易参数或失败结论。
+            try:
+                return Instrument(**self._client.run_command("get_instrument", normalized,
+                                                             timeout=6.0))
+            except SymbolNotFoundError:
+                return None
         with self._lock:
             cached = self._info_cache.get(normalized)
             if cached is not None:
@@ -200,6 +220,10 @@ def normalize_symbol(client: TqClient, symbol: str) -> Optional[str]:
         if exchange in EXCHANGES and instrument:
             return f"{exchange}.{canonical_instrument(exchange, instrument)}"
         return None
+    if getattr(client, "supports_symbol_search", False):
+        records = client.run_command("search_instruments", "", value, False, 2, timeout=12.0)
+        # 裸代码只能在唯一命中时解析；不轮流查询六家交易所，也不猜测合约。
+        return records[0]["symbol"] if len(records) == 1 else None
     for exchange in EXCHANGES:
         candidate = f"{exchange}.{canonical_instrument(exchange, upper)}"
         try:

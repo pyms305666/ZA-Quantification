@@ -182,6 +182,8 @@ class CatalogCompletenessTests(unittest.TestCase):
     def test_complete_catalog_miss_is_strictly_rejected(self):
         client = self._partial_client()
         client._catalog_complete.set()
+        # 本地旧缓存不是“不存在”的证据；只有天勤成功返回空结果才能严格拒绝。
+        client._symbol_search.lookup = mock.AsyncMock(return_value=None)
         with self.assertRaises(SymbolNotFoundError):
             asyncio.run(client._get_instrument("SHFE.au2612"))
         self.assertTrue(client.catalog_complete)

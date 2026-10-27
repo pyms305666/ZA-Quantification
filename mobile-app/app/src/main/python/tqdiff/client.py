@@ -6,7 +6,7 @@
 - 与旧 TqClient 的命令接口完全一致（subscribe / unsubscribe / subscribed /
   get_instrument / get_instruments_info / query_instruments / query_options /
   get_kline），上层 tq/instruments、tq/subscriber、api/ 零改动。
-- 关键差异：没有任何"长命令"独占事件循环——合约信息全部来自静态文件（内存读取），
+- 合约按用户输入向天勤 GraphQL 查询，不在启动时下载完整静态目录；
   K 线通过 set_chart 异步到达，命令只做"发一条 ws 消息 + 等本地事件"，
   因此不存在队列堵塞 / 活锁的土壤。
 """
@@ -17,17 +17,17 @@ import asyncio
 import json
 import logging
 import os
-import re
 import threading
 import time
+import uuid
 from concurrent.futures import Future
 from typing import Any, Callable, Optional
 from types import SimpleNamespace
 
 from market.processor import to_market_quote
 from . import auth as diff_auth
+from .search import FUTURE_SYMBOL_RE, SymbolSearch, build_symbol_query
 
-FUTURE_SYMBOL_RE = re.compile(r"^[A-Z]+\.[a-z]{1,3}\d{3,4}$")
 EXCHANGE_INSTRUMENT_CASE = {
     "SHFE": "lower", "DCE": "lower", "INE": "lower", "GFEX": "lower",
     "CZCE": "upper", "CFFEX": "upper",
@@ -81,6 +81,7 @@ def _candidates(symbol: str) -> list[str]:
 
 class DiffClient:
     READY_DELAY_SECONDS = 0.0  # DIFF 路线无预热期（无 free-api 登录排队问题）
+    supports_symbol_search = True
 
     def __init__(self, account: str, password: str, wait_deadline: float = 0.5) -> None:
         self._account = account
@@ -112,6 +113,8 @@ class DiffClient:
         self._quote_events: dict[str, asyncio.Event] = {}
         self._subscribed: set[str] = set()
         self._charts: dict[tuple[str, int], dict] = {}  # (symbol, dur_ns) -> 缓冲
+        self._symbol_queries: dict[str, dict] = {}
+        self._symbol_search = SymbolSearch(self._query_symbols)
 
     # ------------------------------------------------------------ 状态与回调
 
@@ -165,8 +168,19 @@ class DiffClient:
 
     @property
     def catalog_ready(self) -> bool:
-        """是否已有可搜索的目录记录（兼容既有状态接口）。"""
-        return self._file_loaded.is_set()
+        """连接成功即可按需搜索，无需等待整份目录。"""
+        return self.connected
+
+    @property
+    def catalog_loading(self) -> bool:
+        """表示实际进行中的合约查询，空闲时不会显示“完整目录下载中”。"""
+        return bool(self._symbol_queries)
+
+    @property
+    def known_futures_count(self) -> int:
+        """本次会话查询过的合约数；状态轮询只读内存，不触发合约查询。"""
+        with self._data_lock:
+            return len(self._symbol_file)
 
     @property
     def catalog_complete(self) -> bool:
@@ -273,6 +287,14 @@ class DiffClient:
         if loop is not None and loop.is_running():
             asyncio.run_coroutine_threadsafe(self._resend_subscribe(), loop)
 
+    def discard_subscription(self, symbol: str) -> None:
+        """断线期间取消本地订阅意图，重连时只重放仍然需要的合约。"""
+        with self._data_lock:
+            self._subscribed.discard(symbol)
+            self._quotes.pop(symbol, None)
+            for key in [key for key in self._charts if key[0] == symbol]:
+                self._charts.pop(key, None)
+
     def set_credentials(self, account: str, password: str) -> None:
         """运行中设置天勤凭据（登录界面保存后调用）。
 
@@ -351,7 +373,8 @@ class DiffClient:
             # 缓存报价停在断网前旧值）。这里在每次连接建立后按订阅表/图表缓冲重放。
             await self._resend_subscribe()
             await self._resend_charts()
-            self._notify_connected()
+            # 回调会提交同步 run_command；放到工作线程，避免行情循环等待自己而超时。
+            self._loop.run_in_executor(None, self._notify_connected)
             async for raw in ws:
                 if self._stop.is_set():
                     return
@@ -375,95 +398,50 @@ class DiffClient:
         self._file_task = self._loop.create_task(self._load_symbol_file())
 
     async def _load_symbol_file(self) -> None:
-        """后台加载合约目录：缓存优先；无缓存先用内置表秒用，再后台下载完整目录替换。
+        """兼容旧启动入口：标记按需查询可用，不读取旧目录、不下载完整文件。"""
+        self._file_loaded.set()
+        self._catalog_complete.clear()
+        self._set_catalog_progress(None)
 
-        只影响"搜索合约"功能；下载/解析过程中分批置位 _file_loaded，
-        让"解析进一批即可搜索"（增量就绪），而不是等全部 24 万条下载完。
+    async def _query_symbols(self, filters: dict) -> list[dict]:
+        """通过既有 DIFF 连接发出一次 GraphQL 查询，收到答复后释放服务端查询。
 
-        兜底策略（本阶段重点）：
-        - 磁盘索引/旧 JSON 缓存（7 天）存在 → 直接用；
-        - 无缓存 → 先用内置主流合约表（约 260 个）让搜索/自选立即可用，
-          同时后台下载完整目录，下载成功用完整表替换、下载失败保留内置表；
-        - 内置表彻底绕开"服务器限速 + 下载失败从 0 重下"的痛点。
+        每次请求有独立 ID 和事件；行情和其他品种查询可以同时进行。
+        超时/服务端错误向上抛，只有成功返回空列表才表示合约不存在。
         """
-        # 1) 磁盘缓存优先（索引 pickle / 旧 JSON）
-        cached = await self._loop.run_in_executor(
-            None, diff_auth.load_cached_symbol_file)
-        if cached is not None:
-            with self._data_lock:
-                self._symbol_file = cached
-            self._file_loaded.set()
-            self._catalog_complete.set()
-            self._status(f"合约目录就绪（缓存，{len(cached)} 个合约）")
-            return
-
-        # 2) 无缓存：先用内置表兜底（秒用），再后台下载完整目录
-        builtin = await self._loop.run_in_executor(None, diff_auth.load_builtin_catalog)
-        if builtin:
-            with self._data_lock:
-                self._symbol_file = builtin
-            self._file_loaded.set()
-            self._set_catalog_progress(f"内置 {len(builtin)} 个合约，完整目录后台下载中")
-            self._status(f"合约目录：内置 {len(builtin)} 个常见合约，完整目录后台下载中")
-
-        # 3) 后台下载完整目录（失败有限重试，保留内置表兜底）
-        retries = 0
-        while not self._stop.is_set() and retries < 5:
-            def _download():
-                return diff_auth.download_symbol_file(
-                    self._token,
-                    progress=lambda done, total: self._set_catalog_progress(
-                        f"下载中 {done // 1024 // 1024}MB"
-                        + (f"/{total // 1024 // 1024}MB" if total else "")),
-                    on_index_progress=self._on_index_progress,
-                )
-            try:
-                symbols = await self._loop.run_in_executor(None, _download)
-                with self._data_lock:
-                    self._symbol_file = symbols
-                self._file_loaded.set()
-                self._catalog_complete.set()
-                self._set_catalog_progress(None)   # 就绪后清除进度
-                self._status(f"合约目录就绪（{len(symbols)} 个合约）")
-                return
-            except Exception as error:
-                retries += 1
-                if builtin:
-                    self._status(f"完整目录下载失败（{retries}/5）：{error}，继续使用内置目录")
-                    if retries >= 5:
-                        self._set_catalog_progress(None)   # 放弃：不再显示下载进度
-                        return
-                else:
-                    self._status(f"合约目录下载失败，30 秒后重试：{error}")
-                await asyncio.sleep(30.0)
-
-    def _on_index_progress(self, count: int) -> None:
-        """解析进度回调（executor 线程内）：分批置位目录就绪，让搜索尽早可用。"""
-        self._set_catalog_progress(f"解析 {count} 条")
-        # 解析到一定条数即视为目录可用（避免等全部 24 万条）
-        if count >= 1000:
-            self._file_loaded.set()
-
-    async def _wait_file(self, timeout: float) -> bool:
-        """等待合约目录就绪（K 线/订阅不依赖它；目录查询依赖）。
-
-        注意：必须 await Event.wait()（协程）——Event 本身不是 awaitable，
-        直接丢给 asyncio.shield/wait_for 会抛
-        "An asyncio.Future, a coroutine or an awaitable is required"。
-        """
-        if self._file_loaded.is_set():
-            return True
-        self._ensure_symbol_file_task()
+        if self._ws is None:
+            raise TqClientError("天勤合约服务未连接，请稍候重试")
+        query_id = "ZA_search_" + uuid.uuid4().hex
+        pending = {"ready": asyncio.Event(), "data": {}}
+        self._symbol_queries[query_id] = pending
         try:
-            # threading.Event 无 .wait() 协程版：用轮询（非交易时段/慢网络下足够）
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline and not self._file_loaded.is_set():
-                await asyncio.sleep(0.2)
-            if not self._file_loaded.is_set():
-                return False
+            query = build_symbol_query(filters)
+            await asyncio.wait_for(self._send({"aid": "ins_query", "query_id": query_id,
+                                              "query": query, "variables": filters}), timeout=1.0)
+            await asyncio.wait_for(pending["ready"].wait(), timeout=4.0)
+            response = pending["data"]
+            if response.get("error"):
+                # 保留可诊断信息供日志排查；查询条件只有品种/代码，不包含账号或令牌。
+                # 界面保留可读提示，不把 GraphQL 语句和内部字段堆给用户。
+                detail = str(response["error"]).replace("\r", " ").replace("\n", " ")[:600]
+                logger.warning("[contract-search] query_id=%s filters=%s upstream_error=%s",
+                               query_id, filters, detail)
+                raise TqClientError("天勤合约查询失败，请稍后重试")
+            rows = (response.get("result") or {}).get("multi_symbol_info")
+            if not isinstance(rows, list):
+                raise TqClientError("天勤合约服务返回格式异常，请重试")
+            return [row for row in rows if isinstance(row, dict)]
         except asyncio.TimeoutError:
-            return False
-        return True
+            raise TqClientError("天勤合约查询超时，请重试或输入完整品种代码") from None
+        finally:
+            self._symbol_queries.pop(query_id, None)
+            # 空 query 是官方 SDK 使用的释放协议；搜索不会留下持续查询/行情订阅。
+            if self._ws is not None:
+                try:
+                    await asyncio.wait_for(self._send({"aid": "ins_query", "query_id": query_id,
+                                                       "query": "", "variables": {}}), timeout=0.5)
+                except Exception:
+                    pass
 
     async def _send(self, pack: dict) -> None:
         assert self._send_lock is not None
@@ -484,6 +462,14 @@ class DiffClient:
             diff: 服务器推送的单条数据包，形如
                 {"quotes": {symbol: {field: value}}, "klines": {...}}，两键均可缺省。
         """
+        # ins_query 返回的是独立的 symbols 数据，不得当作行情订阅或写入价格缓存。
+        for query_id, patch in (diff.get("symbols") or {}).items():
+            pending = self._symbol_queries.get(query_id)
+            if pending is not None and isinstance(patch, dict):
+                pending["data"].update(patch)
+                if "result" in patch or patch.get("error"):
+                    pending["ready"].set()
+
         quotes_diff = diff.get("quotes")
         if isinstance(quotes_diff, dict):
             for symbol, fields in quotes_diff.items():
@@ -619,10 +605,15 @@ class DiffClient:
             return await self._get_instruments_info(list(args[0]))
         if command == "query_instruments":
             return await self._query_instruments()
+        if command == "search_instruments":
+            records = await self._symbol_search.search(*args)
+            with self._data_lock:
+                self._symbol_file.update({row["symbol"]: row for row in records})
+            return records
         if command == "query_options":
             raise TqClientError("C 直连路线暂未实现期权查询")
         if command == "start_catalog_worker":
-            return True  # C 路线无后台目录任务（目录来自静态文件）
+            return True  # 按需模式无后台全量目录任务
         if command == "get_kline":
             return await self._get_kline(args[0], int(args[1]), int(args[2]))
         raise TqClientError(f"未知命令：{command}")
@@ -648,13 +639,13 @@ class DiffClient:
         """把当前订阅表整体重发给服务器（subscribe_quote）。
 
         服务器端订阅是全量语义：每次重发完整 ins_list（逗号分隔）即可完成
-        增/删订阅与断线重放，无需本地记录与服务器侧的差量。空表不发。
+        增/删订阅与断线重放，无需本地记录与服务器侧的差量。空表也发送以取消全部订阅。
         """
         with self._data_lock:
             ins_list = ",".join(sorted(self._subscribed))
         pack = {"aid": "subscribe_quote", "ins_list": ins_list}
-        if ins_list:
-            await self._send(pack)
+        # 空 ins_list 表示取消全部行情订阅，必须发送，否则服务端会保留最后一只。
+        await self._send(pack)
 
     async def _resend_charts(self) -> None:
         """重连后重放所有 set_chart：服务器断开即丢弃图表状态，不重放则 K 线停止刷新。
@@ -735,76 +726,43 @@ class DiffClient:
             self._subscribed.discard(symbol)
             self._quotes.pop(symbol, None)
             self._quote_events.pop(symbol, None)
-            for k in [ck for ck in self._charts if ck[0] == symbol]:
+            removed_charts = [ck for ck in self._charts if ck[0] == symbol]
+            for k in removed_charts:
                 self._charts.pop(k, None)
+        # 删除本地缓冲不会停止服务端图表推送，须显式清空每个 chart 的 ins_list。
+        for key in removed_charts:
+            await self._send({"aid": "set_chart", "chart_id": f"ZAQ_{abs(hash(key)) % 10**10}",
+                              "ins_list": "", "duration": key[1]})
         await self._resend_subscribe()
         return None
 
     async def _get_instrument(self, symbol: str) -> dict:
-        """查询单只合约的完整 record（最多等目录 60 秒）。
-
-        Returns:
-            该合约的精简 record 副本。
-
-        Raises:
-            TqClientError: 目录未就绪（超时），或目录未完整且本地未命中
-                （此时无法断言"不存在"，交给行情服务确认）。
-            SymbolNotFoundError: 目录已完整而本地确无此合约（严格拒绝）。
-        """
-        if not await self._wait_file(60.0):
-            raise TqClientError("合约目录后台下载中，请稍候重试")
-        record = self._file_entry(symbol)
+        """按代码向天勤确认真实挂牌信息；本地缺记录不再误判成不存在。"""
+        record = await self._symbol_search.lookup(symbol)
         if record is None:
-            if not self._catalog_complete.is_set():
-                raise TqClientError("合约目录尚未完整，交由行情服务确认")
-            raise SymbolNotFoundError(f"合约不存在或查询失败：{symbol}")
-        # _symbol_file 存的是精简 record，直接返回
-        return dict(record)
+            raise SymbolNotFoundError(f"合约不存在或已到期：{symbol}")
+        with self._data_lock:
+            self._symbol_file[record["symbol"]] = dict(record)
+        self._file_loaded.set()
+        return record
 
     async def _get_instruments_info(self, symbols: list[str]) -> dict:
-        """批量查询合约 record（目录就绪前提下，未命中的键静默跳过）。
-
-        Args:
-            symbols: 合约代码列表。
-
-        Returns:
-            {symbol: record}，只含命中的条目。
-        """
-        if not await self._wait_file(60.0):
-            raise TqClientError("合约目录后台下载中，请稍候重试")
-        output: dict[str, dict] = {}
-        for symbol in symbols:
-            record = self._file_entry(symbol)
-            if record is not None:
-                output[symbol] = dict(record)
-        return output
+        """兼容批量元数据接口，只查询调用方明确要求的代码。"""
+        if not symbols:
+            return {}
+        if len(symbols) > 300:
+            raise TqClientError("单次合约查询最多 300 个代码")
+        records = await self._symbol_search.lookup_many(symbols)
+        with self._data_lock:
+            self._symbol_file.update({row["symbol"]: row for row in records})
+        return {row["symbol"]: row for row in records}
 
     async def _query_instruments(self) -> list[str]:
-        """列出全部可交易的国内期货代码（排序返回，供合约列表页浏览）。
-
-        过滤规则：kind 必须为 FUTURE 且未过期；剔除 KQD. 外盘主连；
-        剔除不符合 "交易所.品种+数字" 形态的特珠代码（指数/期权由前缀过滤自然排除）。
-
-        Returns:
-            排序后的合约代码列表（如 ["CFFEX.IF2609", "DCE.m2609", ...]）。
-        """
-        if not await self._wait_file(60.0):
-            raise TqClientError("合约目录后台下载中，请稍候重试")
+        """旧接口仅返回已查询的期货记录；不会触发完整目录下载。"""
         with self._data_lock:
-            file_data = self._symbol_file
-        symbols = []
-        for key, record in file_data.items():
-            if not isinstance(record, dict):
-                continue
-            # record.kind=='FUTURE'，且未过期，且为国内主力/主连，才列入
-            if record.get("kind") != "FUTURE" or record.get("expired"):
-                continue
-            if key.upper().startswith("KQD."):
-                continue  # 外盘主连，国内评估器不需要
-            if not FUTURE_SYMBOL_RE.match(key):
-                continue
-            symbols.append(key)
-        return sorted(symbols)
+            return sorted(key for key, record in self._symbol_file.items()
+                          if record.get("kind") == "FUTURE" and not record.get("expired")
+                          and FUTURE_SYMBOL_RE.fullmatch(key))
 
     async def _get_kline(self, symbol: str, period: int, count: int) -> list[dict]:
         """拉取一只合约最近 count 根 K 线（不依赖合约目录，目录未就绪也可用）。
@@ -875,13 +833,19 @@ class DiffClient:
             deadline = time.monotonic() + 20.0
             resend_at = 0.0
             while time.monotonic() < deadline:
+                with self._data_lock:
+                    if self._charts.get(key) is not buffer:
+                        raise TqClientError("合约查看已结束")
                 now = time.monotonic()
                 if now >= resend_at:
                     await self._send(pack)
                     resend_at = now + 2.0
                 await asyncio.sleep(0.2)
                 with self._data_lock:
-                    last_id = self._charts[key]["last_id"]
+                    current = self._charts.get(key)
+                    if current is not buffer:
+                        raise TqClientError("合约查看已结束")
+                    last_id = current["last_id"]
                 if last_id >= 0:
                     break
             if last_id < 0:
@@ -893,7 +857,9 @@ class DiffClient:
                 logger.info("[kline #%d] chart ready %.2fs last_id=%d",
                             req_id, time.monotonic() - t0, last_id)
         with self._data_lock:
-            buffer = self._charts[key]
+            current = self._charts.get(key)
+            if current is not buffer:
+                raise TqClientError("合约查看已结束")
             rows = dict(buffer["rows"])
             last_id = buffer["last_id"]
         need_from = max(0, last_id - fetch_length + 1)
@@ -904,8 +870,11 @@ class DiffClient:
             while time.monotonic() < deadline and missing:
                 await asyncio.sleep(0.1)
                 with self._data_lock:
-                    rows = dict(self._charts[key]["rows"])
-                    last_id = self._charts[key]["last_id"]
+                    current = self._charts.get(key)
+                    if current is not buffer:
+                        raise TqClientError("合约查看已结束")
+                    rows = dict(current["rows"])
+                    last_id = current["last_id"]
                 need_from = max(0, last_id - fetch_length + 1)
                 missing = [i for i in range(need_from, last_id + 1) if i not in rows]
             if missing:
